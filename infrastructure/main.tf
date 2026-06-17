@@ -100,10 +100,4 @@ module "k8s_resources" {
   content_parser_image_tag  = var.content_parser_image_tag
   docker_hub_username       = var.docker_hub_username
   public_ip_address         = module.networking.public_ip_address
-
-  depends_on = [
-    module.aks,
-    module.storage,
-    module.keyvault
-  ]
 }
