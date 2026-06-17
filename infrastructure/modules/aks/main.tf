@@ -27,8 +27,8 @@ resource "azurerm_kubernetes_cluster" "this" {
   }
 
   azure_active_directory_role_based_access_control {
-    managed                = true
-    azure_rbac_enabled     = true
+    managed            = true
+    azure_rbac_enabled = true
   }
 
   oms_agent {

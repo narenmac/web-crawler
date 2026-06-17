@@ -23,14 +23,14 @@ module "networking" {
 module "aks" {
   source = "./modules/aks"
 
-  resource_group_name         = azurerm_resource_group.this.name
-  location                    = azurerm_resource_group.this.location
-  environment                 = var.environment
-  aks_subnet_id               = module.networking.aks_subnet_id
-  log_analytics_workspace_id  = module.monitoring.log_analytics_workspace_id
-  vm_size                     = var.aks_vm_size
-  min_count                   = var.aks_node_count_min
-  max_count                   = var.aks_node_count_max
+  resource_group_name        = azurerm_resource_group.this.name
+  location                   = azurerm_resource_group.this.location
+  environment                = var.environment
+  aks_subnet_id              = module.networking.aks_subnet_id
+  log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
+  vm_size                    = var.aks_vm_size
+  min_count                  = var.aks_node_count_min
+  max_count                  = var.aks_node_count_max
 
   depends_on = [
     module.networking,
@@ -41,12 +41,12 @@ module "aks" {
 module "storage" {
   source = "./modules/storage"
 
-  resource_group_name   = azurerm_resource_group.this.name
-  location              = azurerm_resource_group.this.location
-  environment           = var.environment
-  storage_account_name  = var.storage_account_name
-  storage_pe_subnet_id  = module.networking.storage_pe_subnet_id
-  vnet_id               = module.networking.vnet_id
+  resource_group_name  = azurerm_resource_group.this.name
+  location             = azurerm_resource_group.this.location
+  environment          = var.environment
+  storage_account_name = var.storage_account_name
+  storage_pe_subnet_id = module.networking.storage_pe_subnet_id
+  vnet_id              = module.networking.vnet_id
 
   depends_on = [module.networking]
 }
@@ -62,11 +62,11 @@ module "identity" {
 module "keyvault" {
   source = "./modules/keyvault"
 
-  resource_group_name        = azurerm_resource_group.this.name
-  location                   = azurerm_resource_group.this.location
-  environment                = var.environment
-  storage_connection_string  = module.storage.primary_connection_string
-  aks_principal_id           = module.aks.principal_id
+  resource_group_name       = azurerm_resource_group.this.name
+  location                  = azurerm_resource_group.this.location
+  environment               = var.environment
+  storage_connection_string = module.storage.primary_connection_string
+  aks_principal_id          = module.aks.principal_id
 
   depends_on = [
     module.storage,
@@ -85,21 +85,21 @@ module "monitoring" {
 module "k8s_resources" {
   source = "./modules/k8s-resources"
 
-  cluster_host                = module.aks.host
-  client_certificate          = module.aks.client_certificate
-  client_key                  = module.aks.client_key
-  cluster_ca_certificate      = module.aks.cluster_ca_certificate
-  storage_account_name        = module.storage.storage_account_name
-  storage_connection_string   = module.storage.primary_connection_string
-  queue_names                 = module.storage.queue_names
-  blob_container_names        = module.storage.blob_container_names
-  frontend_image_tag          = var.frontend_image_tag
-  api_gateway_image_tag       = var.api_gateway_image_tag
-  orchestrator_image_tag      = var.orchestrator_image_tag
-  url_fetcher_image_tag       = var.url_fetcher_image_tag
-  content_parser_image_tag    = var.content_parser_image_tag
-  docker_hub_username         = var.docker_hub_username
-  public_ip_address           = module.networking.public_ip_address
+  cluster_host              = module.aks.host
+  client_certificate        = module.aks.client_certificate
+  client_key                = module.aks.client_key
+  cluster_ca_certificate    = module.aks.cluster_ca_certificate
+  storage_account_name      = module.storage.storage_account_name
+  storage_connection_string = module.storage.primary_connection_string
+  queue_names               = module.storage.queue_names
+  blob_container_names      = module.storage.blob_container_names
+  frontend_image_tag        = var.frontend_image_tag
+  api_gateway_image_tag     = var.api_gateway_image_tag
+  orchestrator_image_tag    = var.orchestrator_image_tag
+  url_fetcher_image_tag     = var.url_fetcher_image_tag
+  content_parser_image_tag  = var.content_parser_image_tag
+  docker_hub_username       = var.docker_hub_username
+  public_ip_address         = module.networking.public_ip_address
 
   depends_on = [
     module.aks,
