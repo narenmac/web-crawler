@@ -12,12 +12,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CrawlResultResponse {
 
-    private String jobId;
     private String urlHash;
     private String url;
-    private String title;
-    private String contentType;
-    private Long contentLength;
+    private String status;
+    private Integer bfsLevel;
+    private String contentHash;
     private String blobPath;
+    private String parentUrl;
     private Instant crawledAt;
 }

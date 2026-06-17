@@ -12,24 +12,21 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class CorsConfig {
 
     private final List<String> allowedOrigins;
-    private final List<String> allowedMethods;
-    private final List<String> allowedHeaders;
 
     public CorsConfig(
-            @Value("${app.cors.allowed-origins:http://localhost:3000}") List<String> allowedOrigins,
-            @Value("${app.cors.allowed-methods:GET,POST,PUT,DELETE,OPTIONS}") List<String> allowedMethods,
-            @Value("${app.cors.allowed-headers:*}") List<String> allowedHeaders) {
-        this.allowedOrigins = allowedOrigins;
-        this.allowedMethods = allowedMethods;
-        this.allowedHeaders = allowedHeaders;
+            @Value("#{'${app.cors.allowed-origins:http://localhost:3000}'.split(',')}") List<String> allowedOrigins) {
+        this.allowedOrigins = allowedOrigins.stream()
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
     }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
-        configuration.setAllowedMethods(allowedMethods);
-        configuration.setAllowedHeaders(allowedHeaders);
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

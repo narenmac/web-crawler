@@ -1,49 +1,74 @@
 export enum JobStatus {
-  Pending = 'Pending',
-  Running = 'Running',
-  Completed = 'Completed',
-  Stopped = 'Stopped',
-  Failed = 'Failed'
+  PENDING = 'PENDING',
+  RUNNING = 'RUNNING',
+  STOPPING = 'STOPPING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  CANCELLED = 'CANCELLED'
 }
+
+export enum UrlStatus {
+  QUEUED = 'QUEUED',
+  CRAWLING = 'CRAWLING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  SKIPPED_DUPLICATE = 'SKIPPED_DUPLICATE'
+}
+
+export type ScheduleIntervalType = 'HOURLY' | 'DAILY' | 'WEEKLY' | 'CRON';
 
 export interface Job {
   id: string;
-  name: string;
-  status: JobStatus;
-  createdAt: string;
-  completedAt?: string;
-  progress: number;
+  status: JobStatus | string;
   totalUrls: number;
   crawledUrls: number;
-  bfsLevel: number;
-  fetcherPods: number;
-  parserPods: number;
-  seedFileName?: string;
+  currentBfsLevel: number;
+  maxUrls: number;
+  createdAt: string;
+  completedAt?: string | null;
+  source: string;
 }
 
 export interface Schedule {
   id: string;
-  name: string;
-  interval: 'Hourly' | 'Daily' | 'Weekly';
-  status: 'active' | 'paused';
-  nextRun: string;
-  lastRun?: string;
+  seedFileName: string;
+  intervalType: ScheduleIntervalType | string;
+  cronExpression?: string | null;
+  nextRunAt?: string | null;
+  lastRunStatus?: string | null;
+  enabled: boolean;
 }
 
-export interface UrlMetadata {
-  title?: string;
-  contentType?: string;
-  contentLength?: number;
-  discoveredFrom?: string;
+export interface SchedulePayload {
+  seedFileId: string;
+  intervalType: ScheduleIntervalType;
+  cronExpression?: string;
+  enabled: boolean;
 }
 
 export interface CrawlResult {
-  id: string;
-  jobId: string;
+  urlHash: string;
   url: string;
-  statusCode: number;
-  level: number;
-  fetchedAt: string;
-  rawHtml: string;
-  metadata: UrlMetadata;
+  status: UrlStatus | string;
+  bfsLevel: number;
+  contentHash?: string | null;
+  blobPath?: string | null;
+  parentUrl?: string | null;
+  crawledAt?: string | null;
+}
+
+export interface PaginatedResponse<T> {
+  jobId: string;
+  page: number;
+  size: number;
+  statusFilter?: string | null;
+  searchQuery?: string | null;
+  total: number;
+  items: T[];
+}
+
+export interface AuthUser {
+  name: string;
+  username: string;
+  initials: string;
 }

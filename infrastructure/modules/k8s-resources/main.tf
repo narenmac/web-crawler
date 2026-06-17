@@ -24,6 +24,27 @@ locals {
     url_fetcher    = "${var.docker_hub_username}/url-fetcher"
     content_parser = "${var.docker_hub_username}/content-parser"
   }
+  spring_boot_probe_path = "/actuator/health"
+  spring_boot_resources = {
+    requests = {
+      cpu    = "250m"
+      memory = "256Mi"
+    }
+    limits = {
+      cpu    = "500m"
+      memory = "512Mi"
+    }
+  }
+  frontend_resources = {
+    requests = {
+      cpu    = "50m"
+      memory = "64Mi"
+    }
+    limits = {
+      cpu    = "100m"
+      memory = "128Mi"
+    }
+  }
 }
 
 provider "kubernetes" {

@@ -27,6 +27,11 @@ resource "kubernetes_deployment_v1" "frontend" {
           port {
             container_port = 80
           }
+
+          resources {
+            limits   = local.frontend_resources.limits
+            requests = local.frontend_resources.requests
+          }
         }
       }
     }

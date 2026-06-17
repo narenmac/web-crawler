@@ -1,5 +1,7 @@
 package com.webcrawler.orchestrator.model;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,5 +15,10 @@ public class UrlTaskMessage {
 
     private String jobId;
     private String url;
-    private Integer level;
+
+    @JsonProperty("bfsLevel")
+    @JsonAlias("level")
+    private Integer bfsLevel;
+
+    private String parentUrl;
 }

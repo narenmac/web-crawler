@@ -1,5 +1,7 @@
 package com.webcrawler.fetcher.model;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,5 +17,10 @@ public class ParseQueueMessage {
     private String url;
     private String urlHash;
     private String blobPath;
-    private Integer level;
+
+    @JsonProperty("bfsLevel")
+    @JsonAlias("level")
+    private Integer bfsLevel;
+
+    private String parentUrl;
 }

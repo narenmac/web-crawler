@@ -7,7 +7,7 @@ locals {
   }
   blob_containers = toset(["raw-html", "seed-files"])
   table_names     = toset(["jobs", "urlmetadata", "contenthashes", "schedules"])
-  queue_names     = toset(["url-queue", "parse-queue", "job-control-queue"])
+  queue_names     = toset(["url-queue", "parse-queue", "job-control-queue", "result-queue"])
 }
 
 resource "azurerm_storage_account" "this" {

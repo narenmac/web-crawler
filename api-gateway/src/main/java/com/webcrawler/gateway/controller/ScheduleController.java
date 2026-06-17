@@ -1,13 +1,17 @@
 package com.webcrawler.gateway.controller;
 
+import com.webcrawler.gateway.dto.JobResponse;
 import com.webcrawler.gateway.dto.ScheduleRequest;
 import com.webcrawler.gateway.dto.ScheduleResponse;
+import com.webcrawler.gateway.security.CurrentUserProvider;
 import com.webcrawler.gateway.service.ScheduleService;
 import jakarta.validation.Valid;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,47 +21,40 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Slf4j
+@Validated
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/schedules")
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
-
-    public ScheduleController(ScheduleService scheduleService) {
-        this.scheduleService = scheduleService;
-    }
+    private final CurrentUserProvider currentUserProvider;
 
     @PostMapping
-    public ResponseEntity<ScheduleResponse> createSchedule(@Valid @RequestBody ScheduleRequest request,
-                                                           Authentication authentication) {
-        ScheduleResponse response = scheduleService.createSchedule(currentUser(authentication), request);
+    public ResponseEntity<ScheduleResponse> createSchedule(@Valid @RequestBody ScheduleRequest request) {
+        ScheduleResponse response = scheduleService.createSchedule(currentUserProvider.getCurrentUserId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
-    public List<ScheduleResponse> listSchedules(Authentication authentication) {
-        return scheduleService.listSchedules(currentUser(authentication));
+    public List<ScheduleResponse> listSchedules() {
+        return scheduleService.getSchedules(currentUserProvider.getCurrentUserId());
     }
 
     @PutMapping("/{id}")
-    public ScheduleResponse updateSchedule(@PathVariable String id,
-                                           @Valid @RequestBody ScheduleRequest request,
-                                           Authentication authentication) {
-        return scheduleService.updateSchedule(id, currentUser(authentication), request);
+    public ScheduleResponse updateSchedule(@PathVariable String id, @Valid @RequestBody ScheduleRequest request) {
+        return scheduleService.updateSchedule(currentUserProvider.getCurrentUserId(), id, request);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteSchedule(@PathVariable String id, Authentication authentication) {
-        scheduleService.deleteSchedule(id, currentUser(authentication));
+    public ResponseEntity<Void> deleteSchedule(@PathVariable String id) {
+        scheduleService.deleteSchedule(currentUserProvider.getCurrentUserId(), id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/trigger")
-    public ScheduleResponse triggerSchedule(@PathVariable String id, Authentication authentication) {
-        return scheduleService.triggerSchedule(id, currentUser(authentication));
-    }
-
-    private String currentUser(Authentication authentication) {
-        return authentication != null ? authentication.getName() : "anonymous";
+    public JobResponse triggerSchedule(@PathVariable String id) {
+        return scheduleService.triggerSchedule(currentUserProvider.getCurrentUserId(), id);
     }
 }

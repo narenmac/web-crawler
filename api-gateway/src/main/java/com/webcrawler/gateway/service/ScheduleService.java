@@ -2,129 +2,213 @@ package com.webcrawler.gateway.service;
 
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
+import com.azure.data.tables.TableServiceClient;
+import com.azure.data.tables.TableServiceClientBuilder;
+import com.azure.data.tables.models.ListEntitiesOptions;
+import com.azure.data.tables.models.TableServiceException;
+import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.webcrawler.gateway.dto.JobResponse;
 import com.webcrawler.gateway.dto.ScheduleRequest;
 import com.webcrawler.gateway.dto.ScheduleResponse;
 import com.webcrawler.gateway.model.Schedule;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class ScheduleService {
 
-    private final String storageConnectionString;
-    private final Map<String, Schedule> schedules = new ConcurrentHashMap<>();
+    @Value("${app.azure.storage.connection-string}")
+    private String storageConnectionString;
 
-    public ScheduleService(@Value("${app.azure.storage.connection-string}") String storageConnectionString) {
-        this.storageConnectionString = storageConnectionString;
-    }
+    @Value("${app.azure.storage.seed-container:crawler-input}")
+    private String seedContainerName;
+
+    private final JobService jobService;
 
     public ScheduleResponse createSchedule(String userId, ScheduleRequest request) {
+        validateScheduleRequest(request);
+
         Instant now = Instant.now();
         String scheduleId = UUID.randomUUID().toString();
         Schedule schedule = Schedule.builder()
-                .id(scheduleId)
                 .partitionKey(userId)
                 .rowKey(scheduleId)
-                .userId(userId)
-                .name(request.getName())
+                .intervalType(normalizeIntervalType(request.getIntervalType()))
                 .cronExpression(request.getCronExpression())
-                .seedUrls(new ArrayList<>(request.getSeedUrls()))
-                .maxDepth(request.getMaxDepth())
-                .maxUrls(request.getMaxUrls())
-                .enabled(request.getEnabled())
-                .nextExecutionAt(now.plusSeconds(3600))
+                .seedFileUrl(request.getSeedFileId())
+                .enabled(request.isEnabled())
+                .lastRunStatus("NEVER_RUN")
+                .nextRunAt(computeNextRunAt(request.getIntervalType(), request.getCronExpression(), request.isEnabled()))
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
 
-        schedules.put(scheduleId, schedule);
-
-        // TODO: Persist the schedule definition in Azure Table Storage for orchestrator startup hydration.
-        getScheduleTableClient();
+        getScheduleTableClient().upsertEntity(schedule.toEntity());
+        log.info("Created schedule {} for user {}", scheduleId, userId);
         return toResponse(schedule);
     }
 
-    public List<ScheduleResponse> listSchedules(String userId) {
-        // TODO: Replace the in-memory list with an Azure Table query scoped to the current user.
-        getScheduleTableClient();
-        return schedules.values().stream()
-                .filter(schedule -> userId.equals(schedule.getUserId()))
+    public List<ScheduleResponse> getSchedules(String userId) {
+        String filter = "PartitionKey eq '%s'".formatted(escapeOData(userId));
+        return StreamSupport.stream(getScheduleTableClient()
+                        .listEntities(new ListEntitiesOptions().setFilter(filter), null, null)
+                        .spliterator(), false)
+                .map(Schedule::fromEntity)
+                .sorted(Comparator.comparing(Schedule::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(this::toResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
-    public ScheduleResponse updateSchedule(String id, String userId, ScheduleRequest request) {
-        Schedule schedule = findOwnedSchedule(id, userId);
-        schedule.setName(request.getName());
+    public ScheduleResponse updateSchedule(String userId, String scheduleId, ScheduleRequest request) {
+        validateScheduleRequest(request);
+        Schedule schedule = findOwnedSchedule(userId, scheduleId);
+        schedule.setIntervalType(normalizeIntervalType(request.getIntervalType()));
         schedule.setCronExpression(request.getCronExpression());
-        schedule.setSeedUrls(new ArrayList<>(request.getSeedUrls()));
-        schedule.setMaxDepth(request.getMaxDepth());
-        schedule.setMaxUrls(request.getMaxUrls());
-        schedule.setEnabled(request.getEnabled());
+        schedule.setSeedFileUrl(request.getSeedFileId());
+        schedule.setEnabled(request.isEnabled());
+        schedule.setNextRunAt(computeNextRunAt(request.getIntervalType(), request.getCronExpression(), request.isEnabled()));
         schedule.setUpdatedAt(Instant.now());
 
-        // TODO: Upsert the updated schedule entity in Azure Table Storage.
-        getScheduleTableClient();
+        getScheduleTableClient().upsertEntity(schedule.toEntity());
+        log.info("Updated schedule {} for user {}", scheduleId, userId);
         return toResponse(schedule);
     }
 
-    public void deleteSchedule(String id, String userId) {
-        Schedule schedule = findOwnedSchedule(id, userId);
-        schedules.remove(schedule.getId());
-
-        // TODO: Delete the Azure Table entity and unschedule the corresponding Quartz trigger.
-        getScheduleTableClient();
+    public void deleteSchedule(String userId, String scheduleId) {
+        findOwnedSchedule(userId, scheduleId);
+        getScheduleTableClient().deleteEntity(userId, scheduleId);
+        log.info("Deleted schedule {} for user {}", scheduleId, userId);
     }
 
-    public ScheduleResponse triggerSchedule(String id, String userId) {
-        Schedule schedule = findOwnedSchedule(id, userId);
-        schedule.setLastTriggeredJobId(UUID.randomUUID().toString());
-        schedule.setNextExecutionAt(Instant.now().plusSeconds(3600));
-        schedule.setUpdatedAt(Instant.now());
-
-        // TODO: Send an on-demand trigger message to crawler-orchestrator.
-        getScheduleTableClient();
-        return toResponse(schedule);
-    }
-
-    private Schedule findOwnedSchedule(String id, String userId) {
-        Schedule schedule = schedules.get(id);
-        if (schedule == null || !userId.equals(schedule.getUserId())) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Schedule not found");
+    public JobResponse triggerSchedule(String userId, String scheduleId) {
+        Schedule schedule = findOwnedSchedule(userId, scheduleId);
+        if (!schedule.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Schedule is disabled");
         }
-        return schedule;
+
+        JobResponse job = jobService.createJobFromSeedSource(userId, schedule.getSeedFileUrl());
+        schedule.setLastRunJobId(job.getId());
+        schedule.setLastRunStatus(job.getStatus());
+        schedule.setNextRunAt(computeNextRunAt(schedule.getIntervalType(), schedule.getCronExpression(), schedule.isEnabled()));
+        schedule.setUpdatedAt(Instant.now());
+        getScheduleTableClient().upsertEntity(schedule.toEntity());
+
+        log.info("Triggered schedule {} and created job {}", scheduleId, job.getId());
+        return job;
+    }
+
+    private Schedule findOwnedSchedule(String userId, String scheduleId) {
+        try {
+            return Schedule.fromEntity(getScheduleTableClient().getEntity(userId, scheduleId));
+        } catch (TableServiceException ex) {
+            if (ex.getResponse() != null && ex.getResponse().getStatusCode() == 404) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Schedule not found");
+            }
+            throw ex;
+        }
+    }
+
+    private void validateScheduleRequest(ScheduleRequest request) {
+        String intervalType = normalizeIntervalType(request.getIntervalType());
+        if (!List.of("CRON", "HOURLY", "DAILY", "WEEKLY").contains(intervalType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "intervalType must be CRON, HOURLY, DAILY, or WEEKLY");
+        }
+        if (!StringUtils.hasText(request.getSeedFileId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "seedFileId is required");
+        }
+        if (!seedBlobContainerClient().getBlobClient(request.getSeedFileId()).exists()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Referenced seed file was not found");
+        }
+        if ("CRON".equals(intervalType)) {
+            if (!StringUtils.hasText(request.getCronExpression()) || !CronExpression.isValidExpression(request.getCronExpression())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid cronExpression is required for CRON schedules");
+            }
+        } else if (StringUtils.hasText(request.getCronExpression()) && !CronExpression.isValidExpression(request.getCronExpression())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cronExpression must be a valid cron expression when supplied");
+        }
+    }
+
+    private Instant computeNextRunAt(String intervalType, String cronExpression, boolean enabled) {
+        if (!enabled) {
+            return null;
+        }
+
+        String normalizedType = normalizeIntervalType(intervalType);
+        Instant now = Instant.now();
+        return switch (normalizedType) {
+            case "HOURLY" -> now.plusSeconds(3600);
+            case "DAILY" -> now.plusSeconds(86_400);
+            case "WEEKLY" -> now.plusSeconds(604_800);
+            case "CRON" -> {
+                ZonedDateTime next = CronExpression.parse(cronExpression).next(ZonedDateTime.now(ZoneOffset.UTC));
+                yield next != null ? next.toInstant() : null;
+            }
+            default -> null;
+        };
     }
 
     private ScheduleResponse toResponse(Schedule schedule) {
         return ScheduleResponse.builder()
-                .id(schedule.getId())
-                .userId(schedule.getUserId())
-                .name(schedule.getName())
+                .id(schedule.getRowKey())
+                .seedFileName(extractSeedFileName(schedule.getSeedFileUrl()))
+                .intervalType(schedule.getIntervalType())
                 .cronExpression(schedule.getCronExpression())
-                .seedUrls(schedule.getSeedUrls())
-                .maxDepth(schedule.getMaxDepth())
-                .maxUrls(schedule.getMaxUrls())
-                .enabled(schedule.getEnabled())
-                .lastTriggeredJobId(schedule.getLastTriggeredJobId())
-                .nextExecutionAt(schedule.getNextExecutionAt())
-                .createdAt(schedule.getCreatedAt())
-                .updatedAt(schedule.getUpdatedAt())
+                .nextRunAt(schedule.getNextRunAt())
+                .lastRunStatus(schedule.getLastRunStatus())
+                .enabled(schedule.isEnabled())
                 .build();
     }
 
+    private String extractSeedFileName(String seedFileUrl) {
+        if (!StringUtils.hasText(seedFileUrl)) {
+            return null;
+        }
+        int slashIndex = seedFileUrl.lastIndexOf('/');
+        return slashIndex >= 0 ? seedFileUrl.substring(slashIndex + 1) : seedFileUrl;
+    }
+
+    private String normalizeIntervalType(String intervalType) {
+        return intervalType == null ? "" : intervalType.trim().toUpperCase(Locale.ROOT);
+    }
+
     private TableClient getScheduleTableClient() {
+        TableServiceClient serviceClient = new TableServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient();
+        serviceClient.createTableIfNotExists("schedules");
         return new TableClientBuilder()
                 .connectionString(storageConnectionString)
                 .tableName("schedules")
                 .buildClient();
+    }
+
+    private BlobContainerClient seedBlobContainerClient() {
+        BlobContainerClient client = new BlobServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient()
+                .getBlobContainerClient(seedContainerName);
+        client.createIfNotExists();
+        return client;
+    }
+
+    private String escapeOData(String value) {
+        return value.replace("'", "''");
     }
 }

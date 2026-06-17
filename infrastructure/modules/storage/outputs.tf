@@ -19,3 +19,31 @@ output "primary_access_key" {
   value       = azurerm_storage_account.this.primary_access_key
   sensitive   = true
 }
+
+output "blob_container_names" {
+  description = "Blob container names used by the application."
+  value = {
+    raw_html   = "raw-html"
+    seed_files = "seed-files"
+  }
+}
+
+output "queue_names" {
+  description = "Queue names used by the application."
+  value = {
+    url         = "url-queue"
+    parse       = "parse-queue"
+    job_control = "job-control-queue"
+    result      = "result-queue"
+  }
+}
+
+output "table_names" {
+  description = "Table names used by the application."
+  value = {
+    jobs           = "jobs"
+    url_metadata   = "urlmetadata"
+    content_hashes = "contenthashes"
+    schedules      = "schedules"
+  }
+}

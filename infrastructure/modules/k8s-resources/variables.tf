@@ -32,6 +32,24 @@ variable "storage_connection_string" {
   sensitive   = true
 }
 
+variable "queue_names" {
+  description = "Queue names shared across the workloads."
+  type = object({
+    url         = string
+    parse       = string
+    job_control = string
+    result      = string
+  })
+}
+
+variable "blob_container_names" {
+  description = "Blob container names shared across the workloads."
+  type = object({
+    raw_html   = string
+    seed_files = string
+  })
+}
+
 variable "frontend_image_tag" {
   description = "Container image tag for the frontend workload."
   type        = string

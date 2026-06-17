@@ -51,6 +51,14 @@ module "storage" {
   depends_on = [module.networking]
 }
 
+module "identity" {
+  source = "./modules/identity"
+
+  environment        = var.environment
+  spa_redirect_uris  = var.spa_redirect_uris
+  api_identifier_uri = var.api_identifier_uri
+}
+
 module "keyvault" {
   source = "./modules/keyvault"
 
@@ -83,6 +91,8 @@ module "k8s_resources" {
   cluster_ca_certificate      = module.aks.cluster_ca_certificate
   storage_account_name        = module.storage.storage_account_name
   storage_connection_string   = module.storage.primary_connection_string
+  queue_names                 = module.storage.queue_names
+  blob_container_names        = module.storage.blob_container_names
   frontend_image_tag          = var.frontend_image_tag
   api_gateway_image_tag       = var.api_gateway_image_tag
   orchestrator_image_tag      = var.orchestrator_image_tag

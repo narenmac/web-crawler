@@ -1,9 +1,9 @@
 environment            = "dev"
 location               = "eastus"
 resource_group_name    = "rg-web-crawler-dev"
-aks_node_count_min     = 1
-aks_node_count_max     = 2
-aks_vm_size            = "Standard_D2s_v5"
+aks_node_count_min     = 2
+aks_node_count_max     = 5
+aks_vm_size            = "Standard_D2s_v3"
 storage_account_name   = "wcrawlstdev001"
 frontend_image_tag     = "dev"
 api_gateway_image_tag  = "dev"

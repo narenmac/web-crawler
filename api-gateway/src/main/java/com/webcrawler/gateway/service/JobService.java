@@ -2,136 +2,291 @@ package com.webcrawler.gateway.service;
 
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
-import com.azure.storage.blob.BlobClient;
+import com.azure.data.tables.TableServiceClient;
+import com.azure.data.tables.TableServiceClientBuilder;
+import com.azure.data.tables.models.ListEntitiesOptions;
+import com.azure.data.tables.models.TableEntity;
+import com.azure.data.tables.models.TableServiceException;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
-import com.webcrawler.gateway.dto.CreateJobRequest;
+import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.queue.QueueClient;
+import com.azure.storage.queue.QueueClientBuilder;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.webcrawler.gateway.dto.JobResponse;
 import com.webcrawler.gateway.model.Job;
+import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class JobService {
 
-    private final String storageConnectionString;
-    private final Map<String, Job> jobs = new ConcurrentHashMap<>();
+    private static final String STATUS_PENDING = "PENDING";
+    private static final String STATUS_RUNNING = "RUNNING";
+    private static final String STATUS_STOP_REQUESTED = "STOP_REQUESTED";
 
-    public JobService(@Value("${app.azure.storage.connection-string}") String storageConnectionString) {
-        this.storageConnectionString = storageConnectionString;
+    @Value("${app.azure.storage.connection-string}")
+    private String storageConnectionString;
+
+    @Value("${app.azure.storage.seed-container:crawler-input}")
+    private String seedContainerName;
+
+    @Value("${app.azure.storage.content-container:crawler-content}")
+    private String contentContainerName;
+
+    @Value("${app.azure.queues.job-control-queue:job-control-queue}")
+    private String jobControlQueueName;
+
+    @Value("${app.orchestrator.start-endpoint:http://localhost:8081/internal/jobs/start}")
+    private String orchestratorStartEndpoint;
+
+    private final ObjectMapper objectMapper;
+
+    public JobResponse createJob(String userId, MultipartFile seedFile) {
+        ensureNoRunningJobs();
+
+        String jobId = UUID.randomUUID().toString();
+        String source = "seed-files/%s/%s.txt".formatted(userId, jobId);
+        uploadSeedFile(source, seedFile);
+
+        Job job = newJob(userId, jobId, source);
+        getJobTableClient().upsertEntity(job.toEntity());
+
+        try {
+            sendStartSignal(job);
+        } catch (RuntimeException ex) {
+            log.error("Failed to dispatch start signal for job {}", jobId, ex);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Unable to start crawl job", ex);
+        }
+
+        log.info("Created crawl job {} for user {}", jobId, userId);
+        return toResponse(job);
     }
 
-    public JobResponse createJob(String userId, CreateJobRequest request, MultipartFile seedFile) {
-        Instant now = Instant.now();
-        String jobId = UUID.randomUUID().toString();
-        String seedBlobPath = seedFile != null && !seedFile.isEmpty()
-                ? "seed-files/%s/%s/%s".formatted(userId, jobId, seedFile.getOriginalFilename())
-                : null;
+    public JobResponse createJobFromSeedSource(String userId, String seedFilePath) {
+        if (!StringUtils.hasText(seedFilePath)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Seed file reference is required");
+        }
+        if (!seedBlobContainerClient().getBlobClient(seedFilePath).exists()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Referenced seed file was not found");
+        }
 
-        Job job = Job.builder()
-                .id(jobId)
+        ensureNoRunningJobs();
+
+        String jobId = UUID.randomUUID().toString();
+        Job job = newJob(userId, jobId, seedFilePath);
+        getJobTableClient().upsertEntity(job.toEntity());
+        sendStartSignal(job);
+
+        log.info("Created crawl job {} from existing seed source {} for user {}", jobId, seedFilePath, userId);
+        return toResponse(job);
+    }
+
+    public List<JobResponse> getJobs(String userId) {
+        String filter = "PartitionKey eq '%s'".formatted(escapeOData(userId));
+        return StreamSupport.stream(getJobTableClient()
+                        .listEntities(new ListEntitiesOptions().setFilter(filter), null, null)
+                        .spliterator(), false)
+                .map(Job::fromEntity)
+                .sorted(Comparator.comparing(Job::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(this::toResponse)
+                .toList();
+    }
+
+    public JobResponse getJob(String userId, String jobId) {
+        return toResponse(findOwnedJob(userId, jobId));
+    }
+
+    public JobResponse stopJob(String userId, String jobId) {
+        Job job = findOwnedJob(userId, jobId);
+        if (!STATUS_RUNNING.equalsIgnoreCase(job.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only running jobs can be stopped");
+        }
+
+        job.setStatus(STATUS_STOP_REQUESTED);
+        getJobTableClient().upsertEntity(job.toEntity());
+        sendControlMessage(Map.of("jobId", jobId, "action", "STOP", "userId", userId));
+
+        log.info("Queued stop request for job {}", jobId);
+        return toResponse(job);
+    }
+
+    public void deleteJob(String userId, String jobId) {
+        Job job = findOwnedJob(userId, jobId);
+
+        var metadataPages = getUrlMetadataTableClient()
+                .listEntities(new ListEntitiesOptions().setFilter("PartitionKey eq '%s'".formatted(escapeOData(jobId))), null, null)
+                .iterableByPage();
+        List<TableEntity> metadataRows = StreamSupport.stream(metadataPages.spliterator(), false)
+                .flatMap(page -> StreamSupport.stream(page.getElements().spliterator(), false))
+                .toList();
+
+        metadataRows.forEach(entity -> {
+            Object blobPath = entity.getProperty("blobPath");
+            if (blobPath instanceof String path && StringUtils.hasText(path)) {
+                rawHtmlContainerClient().getBlobClient(path).deleteIfExists();
+            }
+            getUrlMetadataTableClient().deleteEntity(entity.getPartitionKey(), entity.getRowKey());
+        });
+
+        if (StringUtils.hasText(job.getSource()) && job.getSource().startsWith("seed-files/%s/%s".formatted(userId, jobId))) {
+            seedBlobContainerClient().getBlobClient(job.getSource()).deleteIfExists();
+        }
+
+        getJobTableClient().deleteEntity(userId, jobId);
+        log.info("Deleted job {} and {} result rows", jobId, metadataRows.size());
+    }
+
+    private Job findOwnedJob(String userId, String jobId) {
+        try {
+            return Job.fromEntity(getJobTableClient().getEntity(userId, jobId));
+        } catch (TableServiceException ex) {
+            if (ex.getResponse() != null && ex.getResponse().getStatusCode() == 404) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found");
+            }
+            throw ex;
+        }
+    }
+
+    private void ensureNoRunningJobs() {
+        var runningPages = getJobTableClient()
+                .listEntities(new ListEntitiesOptions().setFilter("status eq '%s'".formatted(STATUS_RUNNING)), null, null)
+                .iterableByPage();
+        boolean runningJobPresent = StreamSupport.stream(runningPages.spliterator(), false)
+                .flatMap(page -> StreamSupport.stream(page.getElements().spliterator(), false))
+                .findAny()
+                .isPresent();
+        if (runningJobPresent) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A crawl job is already running");
+        }
+    }
+
+    private Job newJob(String userId, String jobId, String source) {
+        Instant now = Instant.now();
+        return Job.builder()
                 .partitionKey(userId)
                 .rowKey(jobId)
-                .userId(userId)
-                .name(request.getName())
-                .seedUrls(new ArrayList<>(request.getSeedUrls()))
-                .seedBlobPath(seedBlobPath)
-                .status("CREATED")
-                .maxDepth(request.getMaxDepth())
-                .maxUrls(request.getMaxUrls())
+                .status(STATUS_PENDING)
+                .totalUrls(0)
+                .crawledUrls(0)
+                .currentBfsLevel(0)
+                .maxUrls(10_000)
                 .createdAt(now)
-                .updatedAt(now)
+                .completedAt(null)
+                .source(source)
                 .build();
+    }
 
-        jobs.put(jobId, job);
-
-        if (seedFile != null && !seedFile.isEmpty()) {
-            // TODO: Upload the seed file contents with blobClient.upload(seedFile.getInputStream(), seedFile.getSize()).
-            BlobClient blobClient = seedFileBlobClient(seedBlobPath);
+    private void uploadSeedFile(String blobPath, MultipartFile seedFile) {
+        try {
+            BlobContainerClient containerClient = seedBlobContainerClient();
+            containerClient.createIfNotExists();
+            containerClient.getBlobClient(blobPath).upload(seedFile.getInputStream(), seedFile.getSize(), true);
+        } catch (IOException | BlobStorageException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unable to upload seed file", ex);
         }
-
-        // TODO: Persist the job entity with getJobTableClient().upsertEntity(...).
-        getJobTableClient();
-
-        return toResponse(job);
     }
 
-    public List<JobResponse> listJobs(String userId) {
-        // TODO: Replace the in-memory filter with an Azure Table query on the user's partition key.
-        getJobTableClient();
-        return jobs.values().stream()
-                .filter(job -> userId.equals(job.getUserId()))
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+    private void sendStartSignal(Job job) {
+        Map<String, Object> payload = Map.of(
+                "jobId", job.getRowKey(),
+                "userId", job.getPartitionKey(),
+                "seedFileUrl", job.getSource(),
+                "status", job.getStatus(),
+                "maxUrls", job.getMaxUrls()
+        );
+        RestClient.create()
+                .post()
+                .uri(orchestratorStartEndpoint)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(payload)
+                .retrieve()
+                .toBodilessEntity();
     }
 
-    public JobResponse getJob(String id, String userId) {
-        return toResponse(findOwnedJob(id, userId));
-    }
-
-    public JobResponse stopJob(String id, String userId) {
-        Job job = findOwnedJob(id, userId);
-        job.setStatus("STOP_REQUESTED");
-        job.setUpdatedAt(Instant.now());
-
-        // TODO: Update the Azure Table entity and publish a stop signal to the orchestrator control queue.
-        getJobTableClient();
-        return toResponse(job);
-    }
-
-    public void deleteJob(String id, String userId) {
-        Job job = findOwnedJob(id, userId);
-        jobs.remove(job.getId());
-
-        // TODO: Delete the Azure Table entity and any seed file blob associated with the job.
-        getJobTableClient();
-    }
-
-    private Job findOwnedJob(String id, String userId) {
-        Job job = jobs.get(id);
-        if (job == null || !userId.equals(job.getUserId())) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found");
+    private void sendControlMessage(Map<String, Object> payload) {
+        try {
+            QueueClient queueClient = new QueueClientBuilder()
+                    .connectionString(storageConnectionString)
+                    .queueName(jobControlQueueName)
+                    .buildClient();
+            queueClient.createIfNotExists();
+            queueClient.sendMessage(objectMapper.writeValueAsString(payload));
+        } catch (JsonProcessingException ex) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Unable to serialize control message", ex);
         }
-        return job;
     }
 
     private JobResponse toResponse(Job job) {
         return JobResponse.builder()
-                .id(job.getId())
-                .userId(job.getUserId())
-                .name(job.getName())
-                .seedUrls(job.getSeedUrls())
-                .seedBlobPath(job.getSeedBlobPath())
+                .id(job.getRowKey())
                 .status(job.getStatus())
-                .maxDepth(job.getMaxDepth())
+                .totalUrls(job.getTotalUrls())
+                .crawledUrls(job.getCrawledUrls())
+                .currentBfsLevel(job.getCurrentBfsLevel())
                 .maxUrls(job.getMaxUrls())
                 .createdAt(job.getCreatedAt())
-                .updatedAt(job.getUpdatedAt())
+                .completedAt(job.getCompletedAt())
+                .source(job.getSource())
                 .build();
     }
 
     private TableClient getJobTableClient() {
-        return new TableClientBuilder()
-                .connectionString(storageConnectionString)
-                .tableName("jobs")
-                .buildClient();
+        return getOrCreateTable("jobs");
     }
 
-    private BlobClient seedFileBlobClient(String blobPath) {
-        BlobContainerClient containerClient = new BlobServiceClientBuilder()
+    private TableClient getUrlMetadataTableClient() {
+        return getOrCreateTable("urlmetadata");
+    }
+
+    private BlobContainerClient seedBlobContainerClient() {
+        BlobContainerClient client = new BlobServiceClientBuilder()
                 .connectionString(storageConnectionString)
                 .buildClient()
-                .getBlobContainerClient("crawler-input");
-        return containerClient.getBlobClient(blobPath);
+                .getBlobContainerClient(seedContainerName);
+        client.createIfNotExists();
+        return client;
+    }
+
+    private BlobContainerClient rawHtmlContainerClient() {
+        BlobContainerClient client = new BlobServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient()
+                .getBlobContainerClient(contentContainerName);
+        client.createIfNotExists();
+        return client;
+    }
+
+    private String escapeOData(String value) {
+        return value.replace("'", "''");
+    }
+
+    private TableClient getOrCreateTable(String tableName) {
+        TableServiceClient serviceClient = new TableServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient();
+        serviceClient.createTableIfNotExists(tableName);
+        return new TableClientBuilder()
+                .connectionString(storageConnectionString)
+                .tableName(tableName)
+                .buildClient();
     }
 }

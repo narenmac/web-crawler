@@ -44,9 +44,3 @@ resource "azurerm_key_vault_secret" "storage_connection_string" {
   value        = var.storage_connection_string
   key_vault_id = azurerm_key_vault.this.id
 }
-
-resource "azurerm_key_vault_secret" "aad_client_secret" {
-  name         = "aad-client-secret"
-  value        = "replace-with-a-real-client-secret"
-  key_vault_id = azurerm_key_vault.this.id
-}

@@ -1,4 +1,4 @@
-package com.webcrawler.parser.model;
+package com.webcrawler.orchestrator.model;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import java.util.ArrayList;

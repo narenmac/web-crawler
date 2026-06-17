@@ -2,98 +2,115 @@ package com.webcrawler.gateway.service;
 
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
-import com.azure.storage.blob.BlobClient;
+import com.azure.data.tables.TableServiceClient;
+import com.azure.data.tables.TableServiceClientBuilder;
+import com.azure.data.tables.models.ListEntitiesOptions;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.storage.blob.models.BlobStorageException;
 import com.webcrawler.gateway.dto.CrawlResultResponse;
 import com.webcrawler.gateway.model.UrlMetadata;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.util.Locale;
+import java.util.stream.StreamSupport;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class ResultService {
 
-    private final String storageConnectionString;
-    private final Map<String, List<UrlMetadata>> resultsByJob = new ConcurrentHashMap<>();
+    @Value("${app.azure.storage.connection-string}")
+    private String storageConnectionString;
 
-    public ResultService(@Value("${app.azure.storage.connection-string}") String storageConnectionString) {
-        this.storageConnectionString = storageConnectionString;
-        seedSampleResult();
-    }
+    @Value("${app.azure.storage.content-container:crawler-content}")
+    private String contentContainerName;
 
-    public List<CrawlResultResponse> listResults(String jobId, int page, int size) {
-        // TODO: Query Azure Table Storage for the job's result metadata with continuation token support.
-        getResultTableClient();
-
-        List<UrlMetadata> items = resultsByJob.getOrDefault(jobId, List.of());
-        int fromIndex = Math.min(page * size, items.size());
-        int toIndex = Math.min(fromIndex + size, items.size());
-
-        return items.subList(fromIndex, toIndex).stream()
+    public List<CrawlResultResponse> getResults(String jobId, int page, int size, String statusFilter, String searchQuery) {
+        return filteredResults(jobId, statusFilter, searchQuery).stream()
+                .skip((long) page * size)
+                .limit(size)
                 .map(this::toResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
-    public long countResults(String jobId) {
-        return resultsByJob.getOrDefault(jobId, List.of()).size();
+    public long countResults(String jobId, String statusFilter, String searchQuery) {
+        return filteredResults(jobId, statusFilter, searchQuery).size();
     }
 
-    public String getRawHtml(String jobId, String urlHash) {
-        BlobClient blobClient = rawHtmlBlobClient(jobId, urlHash);
-        // TODO: Replace the placeholder return value with blobClient.downloadContent().toString().
-        return "<html><body><p>TODO: download raw HTML from " + blobClient.getBlobUrl() + "</p></body></html>";
+    public String getContent(String jobId, String urlHash) {
+        String blobPath = "raw-html/%s/%s.html".formatted(jobId, urlHash);
+        BlobContainerClient containerClient = rawHtmlContainerClient();
+        try {
+            if (!containerClient.getBlobClient(blobPath).exists()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Raw HTML content not found");
+            }
+            return containerClient.getBlobClient(blobPath).downloadContent().toString();
+        } catch (BlobStorageException ex) {
+            if (ex.getStatusCode() == 404) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Raw HTML content not found");
+            }
+            throw ex;
+        }
+    }
+
+    private List<UrlMetadata> filteredResults(String jobId, String statusFilter, String searchQuery) {
+        String normalizedStatus = statusFilter == null ? null : statusFilter.trim().toUpperCase(Locale.ROOT);
+        String normalizedQuery = searchQuery == null ? null : searchQuery.trim().toLowerCase(Locale.ROOT);
+
+        return StreamSupport.stream(getResultTableClient()
+                        .listEntities(new ListEntitiesOptions()
+                                .setFilter("PartitionKey eq '%s'".formatted(escapeOData(jobId))), null, null)
+                        .spliterator(), false)
+                .map(UrlMetadata::fromEntity)
+                .filter(metadata -> !StringUtils.hasText(normalizedStatus)
+                        || normalizedStatus.equalsIgnoreCase(metadata.getStatus()))
+                .filter(metadata -> !StringUtils.hasText(normalizedQuery)
+                        || (metadata.getUrl() != null && metadata.getUrl().toLowerCase(Locale.ROOT).contains(normalizedQuery))
+                        || (metadata.getParentUrl() != null && metadata.getParentUrl().toLowerCase(Locale.ROOT).contains(normalizedQuery)))
+                .toList();
     }
 
     private CrawlResultResponse toResponse(UrlMetadata metadata) {
         return CrawlResultResponse.builder()
-                .jobId(metadata.getJobId())
-                .urlHash(metadata.getUrlHash())
+                .urlHash(metadata.getRowKey())
                 .url(metadata.getUrl())
-                .title(metadata.getTitle())
-                .contentType(metadata.getContentType())
-                .contentLength(metadata.getContentLength())
+                .status(metadata.getStatus())
+                .bfsLevel(metadata.getBfsLevel())
+                .contentHash(metadata.getContentHash())
                 .blobPath(metadata.getBlobPath())
+                .parentUrl(metadata.getParentUrl())
                 .crawledAt(metadata.getCrawledAt())
                 .build();
     }
 
     private TableClient getResultTableClient() {
+        TableServiceClient serviceClient = new TableServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient();
+        serviceClient.createTableIfNotExists("urlmetadata");
         return new TableClientBuilder()
                 .connectionString(storageConnectionString)
-                .tableName("url-metadata")
+                .tableName("urlmetadata")
                 .buildClient();
     }
 
-    private BlobClient rawHtmlBlobClient(String jobId, String urlHash) {
-        BlobContainerClient containerClient = new BlobServiceClientBuilder()
+    private BlobContainerClient rawHtmlContainerClient() {
+        BlobContainerClient client = new BlobServiceClientBuilder()
                 .connectionString(storageConnectionString)
                 .buildClient()
-                .getBlobContainerClient("crawler-content");
-        return containerClient.getBlobClient("raw-html/%s/%s.html".formatted(jobId, urlHash));
+                .getBlobContainerClient(contentContainerName);
+        client.createIfNotExists();
+        return client;
     }
 
-    private void seedSampleResult() {
-        UrlMetadata metadata = UrlMetadata.builder()
-                .partitionKey("sample-job")
-                .rowKey("sample-hash")
-                .jobId("sample-job")
-                .urlHash("sample-hash")
-                .url("https://example.org")
-                .title("Example")
-                .contentType("text/html")
-                .contentLength(128L)
-                .blobPath("raw-html/sample-job/sample-hash.html")
-                .crawledAt(Instant.now())
-                .build();
-
-        List<UrlMetadata> sampleResults = new ArrayList<>();
-        sampleResults.add(metadata);
-        resultsByJob.put("sample-job", sampleResults);
+    private String escapeOData(String value) {
+        return value.replace("'", "''");
     }
 }

@@ -1,9 +1,8 @@
-import { NavLink, Route, Routes } from 'react-router-dom';
-import { useIsAuthenticated, useMsal } from '@azure/msal-react';
+import { Navigate, NavLink, Outlet, Route, Routes } from 'react-router-dom';
+import CrawlResults from './components/CrawlResults';
 import JobDashboard from './components/JobDashboard';
 import ScheduleConfig from './components/ScheduleConfig';
-import CrawlResults from './components/CrawlResults';
-import { loginRequest } from './auth/authConfig';
+import { useAuth } from './auth/AuthProvider';
 
 const navigationLinks = [
   { to: '/', label: 'Dashboard' },
@@ -12,11 +11,7 @@ const navigationLinks = [
 ];
 
 function LoginView() {
-  const { instance } = useMsal();
-
-  const handleLogin = () => {
-    void instance.loginRedirect(loginRequest);
-  };
+  const { login } = useAuth();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
@@ -26,11 +21,11 @@ function LoginView() {
         </span>
         <h1 className="mt-4 text-3xl font-bold text-slate-900">Web Crawler</h1>
         <p className="mt-3 text-sm text-slate-600">
-          Sign in with Microsoft Entra ID to manage crawling jobs, schedules, and results.
+          Sign in with Microsoft Entra ID to manage crawl jobs, schedules, and results through the API Gateway.
         </p>
         <button
           type="button"
-          onClick={handleLogin}
+          onClick={() => void login()}
           className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
         >
           Sign in
@@ -40,35 +35,42 @@ function LoginView() {
   );
 }
 
-function AppShell() {
-  const { accounts, instance } = useMsal();
-  const activeAccount = instance.getActiveAccount() ?? accounts[0];
+function ProtectedLayout() {
+  const { isAuthenticated, user, logout } = useAuth();
 
-  const handleLogout = () => {
-    void instance.logoutRedirect({
-      account: activeAccount
-    });
-  };
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-100">
       <header className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div>
             <h1 className="text-xl font-semibold text-slate-900">Web Crawler</h1>
-            <p className="text-sm text-slate-500">
-              Welcome back{activeAccount?.name ? `, ${activeAccount.name}` : ''}.
-            </p>
+            <p className="text-sm text-slate-500">Monitor crawls, schedules, and content results in one place.</p>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-          >
-            Sign out
-          </button>
+
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+                {user?.initials ?? 'U'}
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold text-slate-900">{user?.name ?? 'Signed in user'}</p>
+                <p className="text-xs text-slate-500">{user?.username ?? ''}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
-        <nav className="mx-auto flex max-w-7xl gap-2 px-4 pb-4 sm:px-6 lg:px-8">
+        <nav className="mx-auto flex max-w-7xl flex-wrap gap-2 px-4 pb-4 sm:px-6 lg:px-8">
           {navigationLinks.map((link) => (
             <NavLink
               key={link.to}
@@ -87,18 +89,24 @@ function AppShell() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Routes>
-          <Route path="/" element={<JobDashboard />} />
-          <Route path="/schedules" element={<ScheduleConfig />} />
-          <Route path="/results" element={<CrawlResults />} />
-        </Routes>
+        <Outlet />
       </main>
     </div>
   );
 }
 
 export default function App() {
-  const isAuthenticated = useIsAuthenticated();
+  const { isAuthenticated } = useAuth();
 
-  return isAuthenticated ? <AppShell /> : <LoginView />;
+  return (
+    <Routes>
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginView />} />
+      <Route element={<ProtectedLayout />}>
+        <Route path="/" element={<JobDashboard />} />
+        <Route path="/schedules" element={<ScheduleConfig />} />
+        <Route path="/results" element={<CrawlResults />} />
+      </Route>
+      <Route path="*" element={<Navigate to={isAuthenticated ? '/' : '/login'} replace />} />
+    </Routes>
+  );
 }

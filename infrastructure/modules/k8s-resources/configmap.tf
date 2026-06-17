@@ -6,11 +6,12 @@ resource "kubernetes_config_map_v1" "web_crawler" {
 
   data = {
     STORAGE_ACCOUNT_NAME      = var.storage_account_name
-    URL_QUEUE_NAME            = "url-queue"
-    PARSE_QUEUE_NAME          = "parse-queue"
-    JOB_CONTROL_QUEUE_NAME    = "job-control-queue"
-    RAW_HTML_CONTAINER_NAME   = "raw-html"
-    SEED_FILES_CONTAINER_NAME = "seed-files"
+    URL_QUEUE_NAME            = var.queue_names.url
+    PARSE_QUEUE_NAME          = var.queue_names.parse
+    JOB_CONTROL_QUEUE_NAME    = var.queue_names.job_control
+    RESULT_QUEUE_NAME         = var.queue_names.result
+    RAW_HTML_CONTAINER_NAME   = var.blob_container_names.raw_html
+    SEED_FILES_CONTAINER_NAME = var.blob_container_names.seed_files
     MAX_URLS_PER_JOB          = "1000"
   }
 }
