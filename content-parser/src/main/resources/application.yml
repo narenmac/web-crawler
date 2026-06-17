@@ -1,16 +1,32 @@
 server:
   port: 8083
+  shutdown: graceful
 
 spring:
   application:
     name: content-parser
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 app:
   azure:
     storage:
-      connection-string: "DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+      connection-string: ${AZURE_STORAGE_CONNECTION_STRING:DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net}
     queues:
-      parse-queue: "parse-queue"
-      result-queue: "result-queue"
+      parse-queue: ${PARSE_QUEUE_NAME:parse-queue}
+      result-queue: ${RESULT_QUEUE_NAME:result-queue}
+      parse-poison-queue: ${PARSE_POISON_QUEUE_NAME:parse-queue-poison}
+    blobs:
+      raw-html-container: ${RAW_HTML_CONTAINER_NAME:raw-html}
   polling:
-    queue-ms: 5000
+    queue-ms: ${QUEUE_POLL_MS:1000}
+  processing:
+    max-dequeue-count: ${MAX_DEQUEUE_COUNT:5}
+  shutdown:
+    wait-timeout: ${SHUTDOWN_WAIT_TIMEOUT:PT30S}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

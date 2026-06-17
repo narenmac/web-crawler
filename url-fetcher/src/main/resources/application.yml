@@ -1,20 +1,42 @@
 server:
   port: 8082
+  shutdown: graceful
 
 spring:
   application:
     name: url-fetcher
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 app:
   azure:
     storage:
-      connection-string: "DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+      connection-string: ${AZURE_STORAGE_CONNECTION_STRING:DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net}
     queues:
-      url-queue: "url-queue"
-      parse-queue: "parse-queue"
+      url-queue: ${URL_QUEUE_NAME:url-queue}
+      parse-queue: ${PARSE_QUEUE_NAME:parse-queue}
+      url-poison-queue: ${URL_POISON_QUEUE_NAME:url-queue-poison}
+    tables:
+      urlmetadata: ${URL_METADATA_TABLE_NAME:urlmetadata}
+      contenthashes: ${CONTENT_HASHES_TABLE_NAME:contenthashes}
+    blobs:
+      raw-html-container: ${RAW_HTML_CONTAINER_NAME:raw-html}
   fetch:
-    timeout-ms: 10000
-    user-agent: "WebCrawlerBot/1.0"
-    politeness-delay-ms: 1000
+    timeout-ms: ${FETCH_TIMEOUT_MS:10000}
+    user-agent: ${FETCH_USER_AGENT:WebCrawler/1.0}
+    max-redirects: ${FETCH_MAX_REDIRECTS:5}
+    politeness-delay: ${FETCH_POLITENESS_DELAY:PT1S}
+    robots:
+      cache-ttl: ${ROBOTS_CACHE_TTL:PT1H}
   polling:
-    queue-ms: 5000
+    queue-ms: ${QUEUE_POLL_MS:1000}
+  processing:
+    max-dequeue-count: ${MAX_DEQUEUE_COUNT:5}
+  shutdown:
+    wait-timeout: ${SHUTDOWN_WAIT_TIMEOUT:PT30S}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
