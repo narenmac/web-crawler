@@ -1,0 +1,20 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: url-fetcher
+
+app:
+  azure:
+    storage:
+      connection-string: "DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+    queues:
+      url-queue: "url-queue"
+      parse-queue: "parse-queue"
+  fetch:
+    timeout-ms: 10000
+    user-agent: "WebCrawlerBot/1.0"
+    politeness-delay-ms: 1000
+  polling:
+    queue-ms: 5000

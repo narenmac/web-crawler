@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+target/
+.mvn/
+
+# Build outputs
+frontend/build/
+frontend/dist/
+*.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Environment
+.env
+.env.local
+*.tfvars
+!infrastructure/environments/*.tfvars
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log

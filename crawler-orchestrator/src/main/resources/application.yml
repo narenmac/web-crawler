@@ -1,0 +1,20 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: crawler-orchestrator
+  quartz:
+    job-store-type: memory
+
+app:
+  azure:
+    storage:
+      connection-string: "DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+    queues:
+      url-queue: "url-queue"
+      parse-queue: "parse-queue"
+      job-control-queue: "job-control-queue"
+  max-urls: 10000
+  polling:
+    job-control-ms: 5000

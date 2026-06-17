@@ -1,0 +1,13 @@
+environment            = "dev"
+location               = "eastus"
+resource_group_name    = "rg-web-crawler-dev"
+aks_node_count_min     = 1
+aks_node_count_max     = 2
+aks_vm_size            = "Standard_D2s_v5"
+storage_account_name   = "wcrawlstdev001"
+frontend_image_tag     = "dev"
+api_gateway_image_tag  = "dev"
+orchestrator_image_tag = "dev"
+url_fetcher_image_tag  = "dev"
+content_parser_image_tag = "dev"
+docker_hub_username    = "your-dockerhub-username"

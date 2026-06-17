@@ -1,0 +1,41 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    azure:
+      active-directory:
+        enabled: true
+        profile:
+          tenant-id: "YOUR_AZURE_AD_TENANT_ID"
+        credential:
+          client-id: "YOUR_AZURE_AD_CLIENT_ID"
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: "https://login.microsoftonline.com/${spring.cloud.azure.active-directory.profile.tenant-id}/v2.0"
+
+app:
+  azure:
+    storage:
+      connection-string: "DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net"
+  cors:
+    allowed-origins:
+      - "http://localhost:3000"
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    allowed-headers:
+      - "*"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
