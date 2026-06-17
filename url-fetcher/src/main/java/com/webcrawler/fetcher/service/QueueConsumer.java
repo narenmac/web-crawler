@@ -1,5 +1,6 @@
 package com.webcrawler.fetcher.service;
 
+import com.azure.core.util.BinaryData;
 import com.azure.core.util.Context;
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
@@ -279,7 +280,12 @@ public class QueueConsumer {
     private void requeueWithDelay(String payload, Duration delay) {
         long visibilitySeconds = Math.max(1L, (long) Math.ceil(delay.toMillis() / 1000.0));
         withRetry(() -> {
-            urlQueueClient.sendMessageWithResponse(payload, Duration.ofSeconds(visibilitySeconds), null, Context.NONE);
+            urlQueueClient.sendMessageWithResponse(
+                    BinaryData.fromString(payload),
+                    Duration.ofSeconds(visibilitySeconds),
+                    Duration.ofSeconds(-1),
+                    null,
+                    Context.NONE);
             return null;
         }, "requeue delayed URL message");
     }
