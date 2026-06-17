@@ -21,10 +21,10 @@ public class HealthCheckConfig {
 
         return () -> {
             try {
+                queueClient.getProperties();
                 return Health.up()
                         .withDetail("storage", "queue")
                         .withDetail("queueName", queueName)
-                        .withDetail("exists", queueClient.exists())
                         .build();
             } catch (RuntimeException ex) {
                 return Health.down(ex)

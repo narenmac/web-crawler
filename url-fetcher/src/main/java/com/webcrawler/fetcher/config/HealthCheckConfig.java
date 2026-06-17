@@ -28,11 +28,13 @@ public class HealthCheckConfig {
 
         return () -> {
             try {
+                boolean blobExists = blobContainerClient.exists();
+                queueClient.getProperties();
                 return Health.up()
                         .withDetail("blobContainer", rawHtmlContainer)
-                        .withDetail("blobContainerExists", blobContainerClient.exists())
+                        .withDetail("blobContainerExists", blobExists)
                         .withDetail("queueName", queueName)
-                        .withDetail("queueExists", queueClient.exists())
+                        .withDetail("queueReachable", true)
                         .build();
             } catch (RuntimeException ex) {
                 return Health.down(ex)
