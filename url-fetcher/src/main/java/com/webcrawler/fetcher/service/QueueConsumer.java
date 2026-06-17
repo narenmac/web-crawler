@@ -106,7 +106,8 @@ public class QueueConsumer {
         parseQueueClient.createIfNotExists();
         poisonQueueClient.createIfNotExists();
 
-        for (QueueMessageItem messageItem : urlQueueClient.receiveMessages(32, Duration.ofSeconds(30), null, Context.NONE)) {
+        // 5-minute visibility timeout prevents duplicate processing when fetch + upload takes longer than default 30s
+        for (QueueMessageItem messageItem : urlQueueClient.receiveMessages(32, Duration.ofSeconds(300), null, Context.NONE)) {
             if (shutdownRequested.get()) {
                 break;
             }

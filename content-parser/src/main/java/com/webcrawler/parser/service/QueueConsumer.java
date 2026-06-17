@@ -82,7 +82,8 @@ public class QueueConsumer {
         resultQueueClient.createIfNotExists();
         poisonQueueClient.createIfNotExists();
 
-        for (QueueMessageItem messageItem : parseQueueClient.receiveMessages(32, Duration.ofSeconds(30), null, Context.NONE)) {
+        // 5-minute visibility timeout prevents duplicate processing when blob read + link extraction takes longer than default 30s
+        for (QueueMessageItem messageItem : parseQueueClient.receiveMessages(32, Duration.ofSeconds(300), null, Context.NONE)) {
             if (shutdownRequested.get()) {
                 break;
             }
