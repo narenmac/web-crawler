@@ -2,6 +2,8 @@
 
 Scalable web crawling platform built with React, Spring Boot microservices, Azure Storage, and AKS.
 
+📐 **[Detailed Design Document →](DESIGN.md)** — Architecture diagrams, storage schema, BFS algorithm, scaling architecture, UI wireframes, and implementation phases.
+
 ## Architecture
 
 - **Frontend** — React 18 + TypeScript SPA with MSAL sign-in
