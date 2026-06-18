@@ -13,13 +13,14 @@ resource "azurerm_kubernetes_cluster" "this" {
   role_based_access_control_enabled = true
 
   default_node_pool {
-    name                = "system"
-    vm_size             = var.vm_size
-    vnet_subnet_id      = var.aks_subnet_id
-    enable_auto_scaling = true
-    min_count           = var.min_count
-    max_count           = var.max_count
-    type                = "VirtualMachineScaleSets"
+    name                        = "system"
+    vm_size                     = var.vm_size
+    vnet_subnet_id              = var.aks_subnet_id
+    enable_auto_scaling         = true
+    min_count                   = var.min_count
+    max_count                   = var.max_count
+    type                        = "VirtualMachineScaleSets"
+    temporary_name_for_rotation = "temppool"
   }
 
   identity {
@@ -31,9 +32,7 @@ resource "azurerm_kubernetes_cluster" "this" {
     azure_rbac_enabled = true
   }
 
-  oms_agent {
-    log_analytics_workspace_id = var.log_analytics_workspace_id
-  }
+  monitor_metrics {}
 
   network_profile {
     network_plugin    = "azure"

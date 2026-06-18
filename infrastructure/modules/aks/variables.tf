@@ -19,8 +19,9 @@ variable "aks_subnet_id" {
 }
 
 variable "log_analytics_workspace_id" {
-  description = "ID of the Log Analytics workspace used for Container Insights."
+  description = "ID of the Log Analytics workspace (kept for future use)."
   type        = string
+  default     = ""
 }
 
 variable "vm_size" {
