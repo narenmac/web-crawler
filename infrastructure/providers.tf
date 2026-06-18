@@ -21,8 +21,8 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "replace-with-tfstate-rg"
-    storage_account_name = "replacewithtfstate"
+    resource_group_name  = "rg-webcrawler-tfstate"
+    storage_account_name = "webcrawlertfstate"
     container_name       = "tfstate"
     key                  = "web-crawler.terraform.tfstate"
   }
