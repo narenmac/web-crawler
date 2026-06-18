@@ -99,36 +99,3 @@ resource "kubernetes_service_v1" "url_fetcher" {
     type = "ClusterIP"
   }
 }
-
-resource "kubectl_manifest" "url_fetcher_scaled_object" {
-  yaml_body = yamlencode({
-    apiVersion = "keda.sh/v1alpha1"
-    kind       = "ScaledObject"
-    metadata = {
-      name      = "url-fetcher-scaler"
-      namespace = kubernetes_namespace.web_crawler.metadata[0].name
-    }
-    spec = {
-      scaleTargetRef = {
-        name = kubernetes_deployment_v1.url_fetcher.metadata[0].name
-      }
-      minReplicaCount = 1
-      maxReplicaCount = 5
-      triggers = [
-        {
-          type = "azure-queue"
-          metadata = {
-            queueName         = var.queue_names.url
-            queueLength       = "100"
-            connectionFromEnv = "AZURE_STORAGE_CONNECTION_STRING"
-          }
-        }
-      ]
-    }
-  })
-
-  depends_on = [
-    helm_release.keda,
-    kubernetes_deployment_v1.url_fetcher
-  ]
-}
