@@ -100,8 +100,8 @@ resource "kubernetes_service_v1" "url_fetcher" {
   }
 }
 
-resource "kubernetes_manifest" "url_fetcher_scaled_object" {
-  manifest = {
+resource "kubectl_manifest" "url_fetcher_scaled_object" {
+  yaml_body = yamlencode({
     apiVersion = "keda.sh/v1alpha1"
     kind       = "ScaledObject"
     metadata = {
@@ -125,7 +125,7 @@ resource "kubernetes_manifest" "url_fetcher_scaled_object" {
         }
       ]
     }
-  }
+  })
 
   depends_on = [
     helm_release.keda,
