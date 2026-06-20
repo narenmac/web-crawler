@@ -26,6 +26,10 @@ public class DeduplicationService {
 
     public DeduplicationService(@Value("${app.azure.storage.connection-string}") String storageConnectionString,
                                 @Value("${app.azure.tables.urlmetadata:urlmetadata}") String urlMetadataTableName) {
+        new com.azure.data.tables.TableServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient()
+                .createTableIfNotExists(urlMetadataTableName);
         this.tableClient = new TableClientBuilder()
                 .connectionString(storageConnectionString)
                 .tableName(urlMetadataTableName)

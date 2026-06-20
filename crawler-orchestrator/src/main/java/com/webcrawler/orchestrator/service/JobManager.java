@@ -36,6 +36,11 @@ public class JobManager {
                       @Value("${app.azure.blobs.seed-files-container:seed-files}") String seedFilesContainer,
                       QueuePublisher queuePublisher,
                       DeduplicationService deduplicationService) {
+        // Create table if not exists
+        new com.azure.data.tables.TableServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient()
+                .createTableIfNotExists(jobsTableName);
         this.jobTableClient = new TableClientBuilder()
                 .connectionString(storageConnectionString)
                 .tableName(jobsTableName)
@@ -44,8 +49,46 @@ public class JobManager {
                 .connectionString(storageConnectionString)
                 .buildClient()
                 .getBlobContainerClient(seedFilesContainer);
+        this.seedContainerClient.createIfNotExists();
         this.queuePublisher = queuePublisher;
         this.deduplicationService = deduplicationService;
+    }
+
+    public synchronized JobRecord startJob(String userId, String jobId, String seedFileUrl, Integer maxUrls) {
+        if (isJobRunning()) {
+            throw new IllegalStateException("A crawl job is already running");
+        }
+
+        Instant now = Instant.now();
+        TableEntity entity = new TableEntity(userId, jobId)
+                .addProperty("status", "RUNNING")
+                .addProperty("currentLevel", 0)
+                .addProperty("enqueuedUrlCount", 0)
+                .addProperty("createdAt", now.toString())
+                .addProperty("updatedAt", now.toString());
+        if (StringUtils.hasText(seedFileUrl)) {
+            entity.addProperty("seedFileUrl", seedFileUrl);
+        }
+        if (maxUrls != null) {
+            entity.addProperty("maxUrls", maxUrls);
+        }
+        upsertJobEntity(entity);
+
+        List<String> seedUrls = loadSeedUrls(seedFileUrl);
+        int enqueued = 0;
+        for (String seedUrl : seedUrls) {
+            if (deduplicationService.markUrlVisited(jobId, seedUrl, 0, null)) {
+                queuePublisher.publishToUrlQueue(jobId, seedUrl, 0, null);
+                enqueued++;
+            }
+        }
+
+        if (enqueued > 0) {
+            incrementEnqueuedCount(jobId, enqueued);
+        }
+
+        log.info("Started job {} for user {} from seed file {} with {} seed URLs", jobId, userId, seedFileUrl, enqueued);
+        return getJobStatus(jobId);
     }
 
     public synchronized JobRecord createJob(String userId, String seedFileUrl) {

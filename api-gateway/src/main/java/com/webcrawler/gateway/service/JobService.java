@@ -16,6 +16,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.webcrawler.gateway.dto.JobResponse;
 import com.webcrawler.gateway.model.Job;
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Comparator;
@@ -58,7 +59,25 @@ public class JobService {
     @Value("${app.orchestrator.start-endpoint:http://localhost:8081/internal/jobs/start}")
     private String orchestratorStartEndpoint;
 
+    @Value("${app.crawl.max-urls:100}")
+    private int defaultMaxUrls;
+
     private final ObjectMapper objectMapper;
+
+    @PostConstruct
+    void initStorage() {
+        log.info("Initializing storage tables, queues, and containers...");
+        try {
+            getOrCreateTable("jobs");
+            getOrCreateTable("urlmetadata");
+            getOrCreateQueue(jobControlQueueName);
+            getOrCreateContainer(seedContainerName);
+            getOrCreateContainer(contentContainerName);
+            log.info("Storage initialization complete.");
+        } catch (Exception e) {
+            log.warn("Storage initialization failed (will retry on first use): {}", e.getMessage());
+        }
+    }
 
     public JobResponse createJob(String userId, MultipartFile seedFile) {
         ensureNoRunningJobs();
@@ -188,7 +207,7 @@ public class JobService {
                 .totalUrls(0)
                 .crawledUrls(0)
                 .currentBfsLevel(0)
-                .maxUrls(10_000)
+                .maxUrls(defaultMaxUrls)
                 .createdAt(now)
                 .completedAt(null)
                 .source(source)
@@ -288,5 +307,21 @@ public class JobService {
                 .connectionString(storageConnectionString)
                 .tableName(tableName)
                 .buildClient();
+    }
+
+    private void getOrCreateQueue(String queueName) {
+        QueueClient queueClient = new QueueClientBuilder()
+                .connectionString(storageConnectionString)
+                .queueName(queueName)
+                .buildClient();
+        queueClient.createIfNotExists();
+    }
+
+    private void getOrCreateContainer(String containerName) {
+        BlobContainerClient client = new BlobServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient()
+                .getBlobContainerClient(containerName);
+        client.createIfNotExists();
     }
 }

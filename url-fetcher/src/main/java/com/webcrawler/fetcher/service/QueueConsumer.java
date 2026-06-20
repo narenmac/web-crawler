@@ -95,6 +95,12 @@ public class QueueConsumer {
                 .connectionString(storageConnectionString)
                 .tableName(contentHashesTableName)
                 .buildClient();
+        // Create tables if not exists
+        var tableServiceClient = new com.azure.data.tables.TableServiceClientBuilder()
+                .connectionString(storageConnectionString)
+                .buildClient();
+        tableServiceClient.createTableIfNotExists(urlMetadataTableName);
+        tableServiceClient.createTableIfNotExists(contentHashesTableName);
     }
 
     @Scheduled(fixedDelayString = "${app.polling.queue-ms:1000}")

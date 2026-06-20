@@ -19,11 +19,13 @@ spring:
           issuer-uri: https://login.microsoftonline.com/${spring.cloud.azure.active-directory.profile.tenant-id}/v2.0
 
 app:
+  crawl:
+    max-urls: ${MAX_URLS:100}
   azure:
     storage:
       connection-string: ${AZURE_STORAGE_CONNECTION_STRING:DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT_NAME;AccountKey=YOUR_ACCOUNT_KEY;EndpointSuffix=core.windows.net}
-      seed-container: ${SEED_CONTAINER_NAME:crawler-input}
-      content-container: ${CONTENT_CONTAINER_NAME:crawler-content}
+      seed-container: ${SEED_CONTAINER_NAME:seed-files}
+      content-container: ${CONTENT_CONTAINER_NAME:raw-pages}
     queues:
       job-control-queue: ${JOB_CONTROL_QUEUE_NAME:job-control-queue}
   orchestrator:
