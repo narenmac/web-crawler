@@ -48,7 +48,7 @@ services:
       - SPRING_PROFILES_ACTIVE=local
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1
       - ORCHESTRATOR_START_ENDPOINT=http://crawler-orchestrator:8081/internal/jobs/start
-      - MAX_URLS=100
+      - MAX_URLS=20
 
   # Crawler Orchestrator
   crawler-orchestrator:
@@ -63,7 +63,7 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=local
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1
-      - MAX_URLS=100
+      - MAX_URLS=20
 
   # URL Fetcher Worker
   url-fetcher:
