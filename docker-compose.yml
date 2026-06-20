@@ -5,12 +5,18 @@ services:
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
     ports:
-      - "10000:10000"  # Blob
-      - "10001:10001"  # Queue
-      - "10002:10002"  # Table
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
     volumes:
       - azurite-data:/data
     command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:10002', (r) => process.exit(r.statusCode === 400 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
 
   # React Frontend
   frontend:
@@ -23,10 +29,8 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - api-gateway
-    environment:
-      - REACT_APP_API_URL=http://localhost:8080
-      - REACT_APP_AUTH_DISABLED=true
+      api-gateway:
+        condition: service_started
 
   # API Gateway
   api-gateway:
@@ -36,12 +40,15 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - azurite
-      - crawler-orchestrator
+      azurite:
+        condition: service_healthy
+      crawler-orchestrator:
+        condition: service_started
     environment:
       - SPRING_PROFILES_ACTIVE=local
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1
       - ORCHESTRATOR_START_ENDPOINT=http://crawler-orchestrator:8081/internal/jobs/start
+      - MAX_URLS=100
 
   # Crawler Orchestrator
   crawler-orchestrator:
@@ -51,10 +58,12 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - azurite
+      azurite:
+        condition: service_healthy
     environment:
       - SPRING_PROFILES_ACTIVE=local
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1
+      - MAX_URLS=100
 
   # URL Fetcher Worker
   url-fetcher:
@@ -64,8 +73,10 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      - azurite
-      - crawler-orchestrator
+      azurite:
+        condition: service_healthy
+      crawler-orchestrator:
+        condition: service_started
     environment:
       - SPRING_PROFILES_ACTIVE=local
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1
@@ -78,8 +89,10 @@ services:
     ports:
       - "8083:8083"
     depends_on:
-      - azurite
-      - crawler-orchestrator
+      azurite:
+        condition: service_healthy
+      crawler-orchestrator:
+        condition: service_started
     environment:
       - SPRING_PROFILES_ACTIVE=local
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1
