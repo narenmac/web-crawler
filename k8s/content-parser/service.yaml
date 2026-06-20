@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: content-parser-service
+  namespace: web-crawler
+spec:
+  selector:
+    app: content-parser
+  ports:
+    - port: 8083
+      targetPort: 8083

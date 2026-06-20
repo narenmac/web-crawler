@@ -94,20 +94,3 @@ jobs:
           cache: 'maven'
 
       - run: mvn verify -B
-
-  terraform:
-    name: Terraform Validate
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infrastructure
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.7.0'
-
-      - run: terraform fmt -check -recursive
-      - run: terraform init -backend=false
-      - run: terraform validate

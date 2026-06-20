@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crawler-orchestrator
+  namespace: web-crawler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crawler-orchestrator
+  template:
+    metadata:
+      labels:
+        app: crawler-orchestrator
+    spec:
+      containers:
+        - name: crawler-orchestrator
+          image: IMAGE_TAG
+          ports:
+            - containerPort: 8081
+          env:
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: azure-storage
+                  key: connection-string
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 5

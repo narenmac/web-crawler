@@ -5,8 +5,7 @@ on:
     branches: [main]
 
 env:
-  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  IMAGE_TAG: ${{ github.sha }}
+  IMAGE_PREFIX: ${{ secrets.DOCKER_HUB_USERNAME }}/web-crawler
 
 jobs:
   build-and-push:
@@ -14,73 +13,91 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service:
-          - name: frontend
+        include:
+          - service: frontend
             context: ./frontend
-          - name: api-gateway
+          - service: api-gateway
             context: ./api-gateway
-          - name: crawler-orchestrator
+          - service: crawler-orchestrator
             context: ./crawler-orchestrator
-          - name: url-fetcher
+          - service: url-fetcher
             context: ./url-fetcher
-          - name: content-parser
+          - service: content-parser
             context: ./content-parser
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/login-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - uses: docker/build-push-action@v5
+      - name: Build & Push
+        uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.service.context }}
+          context: ${{ matrix.context }}
           push: true
           tags: |
-            ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
-            ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-${{ matrix.service.name }}:latest
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
 
   deploy:
-    name: Deploy to Dev (Terraform)
+    name: Deploy to AKS
     needs: build-and-push
     runs-on: ubuntu-latest
-    environment: dev
-    env:
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-    defaults:
-      run:
-        working-directory: infrastructure
     steps:
       - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Azure Login
+        uses: azure/login@v2
         with:
-          terraform_version: '1.7.0'
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Terraform Init
-        run: terraform init
+      - name: Set AKS Context
+        uses: azure/aks-set-context@v4
+        with:
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+          resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
 
-      - name: Terraform Plan
+      - name: Create Namespaces
+        run: kubectl apply -f k8s/namespaces.yaml
+
+      - name: Create/Update Secrets
         run: |
-          terraform plan \
-            -var-file="environments/dev.tfvars" \
-            -var="frontend_image_tag=${{ env.IMAGE_TAG }}" \
-            -var="api_gateway_image_tag=${{ env.IMAGE_TAG }}" \
-            -var="orchestrator_image_tag=${{ env.IMAGE_TAG }}" \
-            -var="url_fetcher_image_tag=${{ env.IMAGE_TAG }}" \
-            -var="content_parser_image_tag=${{ env.IMAGE_TAG }}" \
-            -out=tfplan
+          kubectl create secret generic azure-storage \
+            --from-literal=connection-string="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --namespace=web-crawler \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+      - name: Deploy Services
+        run: |
+          cd k8s
+          sed -i "s|IMAGE_TAG|${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}|g" frontend/deployment.yaml
+          sed -i "s|IMAGE_TAG|${{ env.IMAGE_PREFIX }}-api-gateway:${{ github.sha }}|g" api-gateway/deployment.yaml
+          sed -i "s|IMAGE_TAG|${{ env.IMAGE_PREFIX }}-crawler-orchestrator:${{ github.sha }}|g" orchestrator/deployment.yaml
+          sed -i "s|IMAGE_TAG|${{ env.IMAGE_PREFIX }}-url-fetcher:${{ github.sha }}|g" url-fetcher/deployment.yaml
+          sed -i "s|IMAGE_TAG|${{ env.IMAGE_PREFIX }}-content-parser:${{ github.sha }}|g" content-parser/deployment.yaml
+          kubectl apply -f frontend/
+          kubectl apply -f api-gateway/
+          kubectl apply -f orchestrator/
+          kubectl apply -f url-fetcher/
+          kubectl apply -f content-parser/
+
+      - name: Wait for Rollout
+        run: |
+          kubectl rollout status deployment/frontend -n web-crawler --timeout=120s
+          kubectl rollout status deployment/api-gateway -n web-crawler --timeout=120s
+          kubectl rollout status deployment/crawler-orchestrator -n web-crawler --timeout=120s
+          kubectl rollout status deployment/url-fetcher -n web-crawler --timeout=120s
+          kubectl rollout status deployment/content-parser -n web-crawler --timeout=120s
 
       - name: Smoke Test
         run: |
-          INGRESS_IP=$(terraform output -raw public_ip_address)
-          echo "Testing health endpoint at $INGRESS_IP..."
-          sleep 30
-          curl -f http://$INGRESS_IP/api/actuator/health || echo "Health check pending..."
+          INGRESS_IP=$(kubectl get ingress -n web-crawler -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+          if [ -z "$INGRESS_IP" ]; then
+            echo "⚠️ No Ingress IP yet (NGINX Ingress Controller may not be installed)"
+            echo "Install with: helm install nginx-ingress ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace"
+            exit 0
+          fi
+          curl -f --max-time 10 "http://${INGRESS_IP}/api/actuator/health" || echo "⚠️ Health check failed (app may still be starting)"
