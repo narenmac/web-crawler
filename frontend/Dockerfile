@@ -6,6 +6,12 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+
+ARG REACT_APP_AUTH_DISABLED=false
+ARG REACT_APP_API_URL=http://localhost:8080
+ENV REACT_APP_AUTH_DISABLED=$REACT_APP_AUTH_DISABLED
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+
 RUN npm run build
 
 FROM nginx:alpine

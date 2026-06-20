@@ -4,6 +4,8 @@ import { MsalProvider, useIsAuthenticated, useMsal } from '@azure/msal-react';
 import { AuthUser } from '../types';
 import { loginRequest, msalInstance } from './authConfig';
 
+const AUTH_DISABLED = process.env.REACT_APP_AUTH_DISABLED === 'true';
+
 interface AuthProviderProps {
   children: ReactNode;
 }
@@ -36,6 +38,22 @@ const toUser = (account: AccountInfo | null | undefined): AuthUser | null => {
     initials: initials || 'U'
   };
 };
+
+// Mock auth provider for local development (no Azure AD needed)
+function LocalAuthProvider({ children }: AuthProviderProps) {
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      isAuthenticated: true,
+      user: { name: 'Local Dev User', username: 'local@dev.com', initials: 'LD' },
+      login: async () => {},
+      logout: async () => { window.location.reload(); },
+      getToken: async () => 'local-dev-token'
+    }),
+    []
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
 
 function AuthContextProvider({ children }: AuthProviderProps) {
   const { instance, accounts } = useMsal();
@@ -88,6 +106,14 @@ export function useAuth() {
 }
 
 export default function AuthProvider({ children }: AuthProviderProps) {
+  if (AUTH_DISABLED) {
+    return <LocalAuthProvider>{children}</LocalAuthProvider>;
+  }
+
+  return <MsalAuthProvider>{children}</MsalAuthProvider>;
+}
+
+function MsalAuthProvider({ children }: AuthProviderProps) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
