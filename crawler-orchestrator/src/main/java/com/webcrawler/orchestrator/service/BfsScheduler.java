@@ -24,7 +24,7 @@ public class BfsScheduler {
                         DeduplicationService deduplicationService,
                         JobManager jobManager,
                         JobControlListener jobControlListener,
-                        @Value("${app.max-urls:10000}") int maxUrls) {
+                        @Value("${app.max-urls:100}") int maxUrls) {
         this.queuePublisher = queuePublisher;
         this.deduplicationService = deduplicationService;
         this.jobManager = jobManager;

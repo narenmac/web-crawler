@@ -22,7 +22,7 @@ app:
       urlmetadata: ${URL_METADATA_TABLE_NAME:urlmetadata}
     blobs:
       seed-files-container: ${SEED_FILES_CONTAINER_NAME:seed-files}
-  max-urls: ${MAX_URLS:10000}
+  max-urls: ${MAX_URLS:100}
   polling:
     job-control-ms: ${JOB_CONTROL_POLL_MS:1000}
     result-queue-ms: ${RESULT_QUEUE_POLL_MS:1000}

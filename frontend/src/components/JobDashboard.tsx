@@ -190,7 +190,7 @@ export default function JobDashboard() {
             <button
               type="button"
               onClick={() => activeJob && void handleStopCrawling(activeJob.id)}
-              disabled={!activeJob || activeJob.status !== JobStatus.RUNNING || isStopping}
+              disabled={!activeJob || (activeJob.status !== JobStatus.RUNNING && activeJob.status !== JobStatus.PENDING) || isStopping}
               className="rounded-lg border border-rose-300 px-4 py-3 text-sm font-semibold text-rose-700 transition enabled:hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
             >
               Stop

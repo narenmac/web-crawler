@@ -47,7 +47,7 @@ export default function JobStatus({ job, onStop, isStopping }: JobStatusProps) {
   const elapsed = formatDuration(
     (job.completedAt ? new Date(job.completedAt).getTime() : now) - new Date(job.createdAt).getTime()
   );
-  const canStop = normalizedStatus === JobState.RUNNING;
+  const canStop = normalizedStatus === JobState.RUNNING || normalizedStatus === JobState.PENDING;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
