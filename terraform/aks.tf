@@ -8,9 +8,9 @@ resource "azurerm_kubernetes_cluster" "main" {
     name                = "default"
     node_count          = var.aks_node_count
     vm_size             = var.aks_node_vm_size
-    enable_auto_scaling = true
-    min_count           = var.aks_min_node_count
-    max_count           = var.aks_max_node_count
+    enable_auto_scaling = var.aks_min_node_count != var.aks_max_node_count
+    min_count           = var.aks_min_node_count != var.aks_max_node_count ? var.aks_min_node_count : null
+    max_count           = var.aks_min_node_count != var.aks_max_node_count ? var.aks_max_node_count : null
   }
 
   identity {
