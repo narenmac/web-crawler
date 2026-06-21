@@ -41,13 +41,13 @@ public class Job {
                 .partitionKey(entity.getPartitionKey())
                 .rowKey(entity.getRowKey())
                 .status(asString(entity.getProperty("status")))
-                .totalUrls(asInteger(entity.getProperty("totalUrls")))
+                .totalUrls(firstNonNullInt(entity.getProperty("enqueuedUrlCount"), entity.getProperty("totalUrls")))
                 .crawledUrls(asInteger(entity.getProperty("crawledUrls")))
-                .currentBfsLevel(asInteger(entity.getProperty("currentBfsLevel")))
+                .currentBfsLevel(asInteger(entity.getProperty("currentLevel")))
                 .maxUrls(asInteger(entity.getProperty("maxUrls")))
                 .createdAt(asInstant(entity.getProperty("createdAt")))
                 .completedAt(asInstant(entity.getProperty("completedAt")))
-                .source(asString(entity.getProperty("source")))
+                .source(firstNonNullStr(entity.getProperty("seedFileUrl"), entity.getProperty("source")))
                 .build();
     }
 
@@ -63,6 +63,24 @@ public class Job {
             return number.intValue();
         }
         return Integer.parseInt(String.valueOf(value));
+    }
+
+    private static Integer firstNonNullInt(Object... values) {
+        for (Object v : values) {
+            if (v != null) {
+                return asInteger(v);
+            }
+        }
+        return null;
+    }
+
+    private static String firstNonNullStr(Object... values) {
+        for (Object v : values) {
+            if (v != null) {
+                return String.valueOf(v);
+            }
+        }
+        return null;
     }
 
     private static Instant asInstant(Object value) {

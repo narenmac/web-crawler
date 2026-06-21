@@ -41,6 +41,7 @@ public class QueuePublisher {
                 .parentUrl(parentUrl)
                 .build();
         publish(urlQueueClient, urlQueueName, serialize(message));
+        log.info("Enqueued URL to url-queue: {} (jobId={}, bfsLevel={}, parentUrl={})", url, jobId, bfsLevel, parentUrl);
     }
 
     public void publishToJobControlQueue(String jobId, String action) {

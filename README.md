@@ -64,15 +64,78 @@ web-crawler/
 
 ## Local Development
 
+### Option A: Docker Compose (simplest)
+
 ```bash
-docker-compose up --build
+# Start all services with Azurite (local Azure Storage emulator)
+docker compose up --build
+
+# Fresh start (clears all data)
+docker compose down -v && docker compose up --build
 ```
 
-- Frontend: http://localhost:3000
-- API Gateway: http://localhost:8080
-- Orchestrator: http://localhost:8081
-- URL Fetcher: http://localhost:8082
-- Content Parser: http://localhost:8083
+| Service           | URL                          |
+|-------------------|------------------------------|
+| Frontend          | http://localhost:3000         |
+| API Gateway       | http://localhost:8080         |
+| Debug Queues      | http://localhost:8080/api/debug/queues |
+| Orchestrator      | http://localhost:8081         |
+| URL Fetcher       | http://localhost:8082         |
+| Content Parser    | http://localhost:8083         |
+
+Auth is disabled locally — no Microsoft login required.
+
+### Option B: Local Kubernetes (Docker Desktop)
+
+This option runs the app in a real Kubernetes cluster on your machine, closer to production.
+
+#### Prerequisites
+1. **Docker Desktop** with Kubernetes enabled:
+   - Settings → Kubernetes → ✅ Enable Kubernetes → Apply & Restart
+   - Wait for the green Kubernetes icon
+
+#### Deploy
+
+```powershell
+# Build images, load into containerd, and deploy to k8s
+.\k8s\local\deploy-local.ps1 -All
+
+# Start port-forwarding (keep this terminal open)
+.\k8s\local\deploy-local.ps1 -PortForward
+```
+
+| Service       | URL                                    |
+|---------------|----------------------------------------|
+| Frontend      | http://localhost:3000                   |
+| API Gateway   | http://localhost:8080/api/jobs          |
+| Debug Queues  | http://localhost:8080/api/debug/queues  |
+
+#### Useful commands
+
+```powershell
+# Check pod status
+kubectl get pods -n web-crawler
+
+# View logs
+kubectl logs -n web-crawler -l app=url-fetcher --tail=50 -f
+kubectl logs -n web-crawler -l app=crawler-orchestrator --tail=50 -f
+
+# Scale workers (test auto-scaling behavior)
+kubectl scale deployment url-fetcher -n web-crawler --replicas=3
+kubectl scale deployment content-parser -n web-crawler --replicas=2
+
+# Watch HPA
+kubectl get hpa -n web-crawler -w
+
+# Teardown
+.\k8s\local\deploy-local.ps1 -Teardown
+```
+
+#### Notes
+- Docker Desktop Kubernetes uses **containerd** — images are loaded via `docker save | docker exec -i desktop-control-plane ctr -n k8s.io images import -` (the deploy script handles this automatically)
+- **NodePort doesn't bind to localhost** on Docker Desktop — port-forward is required
+- Init containers wait for Azurite before services start
+- Images must be reloaded after Kubernetes restarts (`.\k8s\local\deploy-local.ps1 -Build`)
 
 ## Manual Deployment
 

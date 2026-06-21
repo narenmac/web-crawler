@@ -45,7 +45,13 @@ const getErrorMessage = (error: unknown, fallbackMessage: string) => {
   return fallbackMessage;
 };
 
+const AUTH_DISABLED = process.env.REACT_APP_AUTH_DISABLED === 'true';
+
 apiClient.interceptors.request.use(async (config) => {
+  if (AUTH_DISABLED || !msalInstance) {
+    return config;
+  }
+
   const account = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0];
 
   if (!account) {

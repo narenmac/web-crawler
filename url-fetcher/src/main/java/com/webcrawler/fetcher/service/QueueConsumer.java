@@ -149,6 +149,9 @@ public class QueueConsumer {
             MDC.put("jobId", message.getJobId());
         }
 
+        log.info("Picked URL from queue: {} (jobId={}, bfsLevel={}, parentUrl={})",
+                message.getUrl(), message.getJobId(), message.getBfsLevel(), message.getParentUrl());
+
         String urlHash = computeUrlHash(message.getUrl());
         URI targetUri = parseUri(message.getUrl(), urlHash, message);
         if (targetUri == null) {
@@ -183,6 +186,9 @@ public class QueueConsumer {
             String blobPath = blobStorageService.uploadRawHtml(message.getJobId(), urlHash, fetchResult.content());
             storeContentHash(message, urlHash, contentHash, fetchResult);
             updateUrlMetadata(message, urlHash, "COMPLETED", contentHash, fetchResult.statusCode(), fetchResult.contentType(), null);
+
+            log.info("Fetched and stored URL: {} (jobId={}, status={}, contentType={}, blobPath={})",
+                    message.getUrl(), message.getJobId(), fetchResult.statusCode(), fetchResult.contentType(), blobPath);
 
             ParseQueueMessage parseQueueMessage = ParseQueueMessage.builder()
                     .jobId(message.getJobId())

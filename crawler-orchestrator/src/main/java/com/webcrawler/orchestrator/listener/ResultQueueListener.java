@@ -44,6 +44,11 @@ public class ResultQueueListener {
                 if (message.getJobId() != null && !message.getJobId().isBlank()) {
                     MDC.put("jobId", message.getJobId());
                 }
+                log.info("Received result from content-parser: parentUrl={}, discoveredLinks={}, bfsLevel={}, jobId={}",
+                        message.getParentUrl(),
+                        message.getDiscoveredLinks() == null ? 0 : message.getDiscoveredLinks().size(),
+                        message.getParentBfsLevel(),
+                        message.getJobId());
                 bfsScheduler.processDiscoveredLinks(
                         message.getJobId(),
                         message.getDiscoveredLinks(),

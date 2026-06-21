@@ -112,6 +112,7 @@ public class QueueConsumer {
     }
 
     public void processMessage(ParseQueueMessage message) {
+        log.info("Parsing HTML for URL: {} (jobId={}, bfsLevel={})", message.getUrl(), message.getJobId(), message.getBfsLevel());
         String html = blobStorageService.readRawHtml(message.getBlobPath());
         List<String> links = Collections.emptyList();
 
@@ -120,19 +121,38 @@ public class QueueConsumer {
         } else {
             try {
                 links = linkExtractor.extractLinks(html, message.getUrl());
+                log.info("Extracted {} links from URL: {} (jobId={})", links.size(), message.getUrl(), message.getJobId());
             } catch (RuntimeException ex) {
                 log.warn("Unable to parse HTML for {}; continuing with empty links", message.getUrl(), ex);
             }
         }
 
-        ResultQueueMessage resultQueueMessage = ResultQueueMessage.builder()
-                .jobId(message.getJobId())
-                .parentUrl(message.getUrl())
-                .discoveredLinks(links)
-                .parentBfsLevel(message.getBfsLevel())
-                .build();
-
-        publishResultMessage(resultQueueMessage);
+        // Azure Queue messages have a 64KB limit. Split large link lists into batches.
+        int batchSize = 200;
+        if (links.size() <= batchSize) {
+            ResultQueueMessage resultQueueMessage = ResultQueueMessage.builder()
+                    .jobId(message.getJobId())
+                    .parentUrl(message.getUrl())
+                    .discoveredLinks(links)
+                    .parentBfsLevel(message.getBfsLevel())
+                    .build();
+            publishResultMessage(resultQueueMessage);
+        } else {
+            int totalBatches = (links.size() + batchSize - 1) / batchSize;
+            for (int i = 0; i < links.size(); i += batchSize) {
+                List<String> batch = links.subList(i, Math.min(i + batchSize, links.size()));
+                int batchNum = (i / batchSize) + 1;
+                ResultQueueMessage resultQueueMessage = ResultQueueMessage.builder()
+                        .jobId(message.getJobId())
+                        .parentUrl(message.getUrl())
+                        .discoveredLinks(new java.util.ArrayList<>(batch))
+                        .parentBfsLevel(message.getBfsLevel())
+                        .build();
+                publishResultMessage(resultQueueMessage);
+                log.info("Published batch {}/{} ({} links) for URL: {} (jobId={})",
+                        batchNum, totalBatches, batch.size(), message.getUrl(), message.getJobId());
+            }
+        }
     }
 
     private void publishResultMessage(ResultQueueMessage message) {

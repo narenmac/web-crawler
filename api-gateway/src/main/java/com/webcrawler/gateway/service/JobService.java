@@ -136,8 +136,9 @@ public class JobService {
 
     public JobResponse stopJob(String userId, String jobId) {
         Job job = findOwnedJob(userId, jobId);
-        if (!STATUS_RUNNING.equalsIgnoreCase(job.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only running jobs can be stopped");
+        String status = job.getStatus();
+        if (!STATUS_RUNNING.equalsIgnoreCase(status) && !STATUS_PENDING.equalsIgnoreCase(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only running or pending jobs can be stopped");
         }
 
         job.setStatus(STATUS_STOP_REQUESTED);
@@ -225,6 +226,8 @@ public class JobService {
     }
 
     private void sendStartSignal(Job job) {
+        log.info("Sending start signal to orchestrator: jobId={}, seedFile={}, maxUrls={}, endpoint={}",
+                job.getRowKey(), job.getSource(), job.getMaxUrls(), orchestratorStartEndpoint);
         Map<String, Object> payload = Map.of(
                 "jobId", job.getRowKey(),
                 "userId", job.getPartitionKey(),
@@ -255,17 +258,35 @@ public class JobService {
     }
 
     private JobResponse toResponse(Job job) {
+        int crawledCount = countCrawledUrls(job.getRowKey());
         return JobResponse.builder()
                 .id(job.getRowKey())
                 .status(job.getStatus())
                 .totalUrls(job.getTotalUrls())
-                .crawledUrls(job.getCrawledUrls())
+                .crawledUrls(crawledCount)
                 .currentBfsLevel(job.getCurrentBfsLevel())
                 .maxUrls(job.getMaxUrls())
                 .createdAt(job.getCreatedAt())
                 .completedAt(job.getCompletedAt())
                 .source(job.getSource())
                 .build();
+    }
+
+    private int countCrawledUrls(String jobId) {
+        if (jobId == null) {
+            return 0;
+        }
+        try {
+            String filter = "PartitionKey eq '%s'".formatted(escapeOData(jobId));
+            return (int) StreamSupport.stream(
+                    getUrlMetadataTableClient()
+                            .listEntities(new ListEntitiesOptions().setFilter(filter), null, null)
+                            .spliterator(), false)
+                    .count();
+        } catch (Exception e) {
+            log.debug("Failed to count crawled URLs for job {}: {}", jobId, e.getMessage());
+            return 0;
+        }
     }
 
     private TableClient getJobTableClient() {

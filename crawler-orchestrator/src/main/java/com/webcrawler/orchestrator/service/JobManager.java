@@ -200,6 +200,16 @@ public class JobManager {
         return entities.stream().findAny().isPresent();
     }
 
+    public Optional<String> findRunningJobId() {
+        return jobTableClient.listEntities(
+                        new ListEntitiesOptions().setFilter("status eq 'RUNNING'"),
+                        null,
+                        null)
+                .stream()
+                .findFirst()
+                .map(TableEntity::getRowKey);
+    }
+
     public boolean hasRunningJob() {
         return isJobRunning();
     }

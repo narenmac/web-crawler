@@ -25,6 +25,11 @@ app:
   shutdown:
     wait-timeout: ${SHUTDOWN_WAIT_TIMEOUT:PT30S}
 
+logging:
+  level:
+    com.azure.data.tables: ERROR
+    com.azure.core.http.policy: ERROR
+
 management:
   endpoints:
     web:
