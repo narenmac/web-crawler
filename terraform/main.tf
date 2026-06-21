@@ -10,7 +10,7 @@ terraform {
 
   backend "azurerm" {
     resource_group_name  = "web-crawler-rg"
-    storage_account_name = "sawebcrawler"
+    storage_account_name = "sawebcrawlernew"
     container_name       = "tfstate"
     key                  = "web-crawler.tfstate"
   }
