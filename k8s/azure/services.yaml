@@ -13,9 +13,11 @@ spec:
       labels:
         app: api-gateway
     spec:
+      imagePullSecrets:
+        - name: dockerhub-secret
       containers:
         - name: api-gateway
-          image: ACR_LOGIN_SERVER/web-crawler-api-gateway:latest
+          image: DOCKER_REGISTRY/web-crawler-api-gateway:latest
           ports:
             - containerPort: 8080
           envFrom:
@@ -75,9 +77,11 @@ spec:
       labels:
         app: crawler-orchestrator
     spec:
+      imagePullSecrets:
+        - name: dockerhub-secret
       containers:
         - name: crawler-orchestrator
-          image: ACR_LOGIN_SERVER/web-crawler-orchestrator:latest
+          image: DOCKER_REGISTRY/web-crawler-orchestrator:latest
           ports:
             - containerPort: 8081
           envFrom:
@@ -131,9 +135,11 @@ spec:
       labels:
         app: url-fetcher
     spec:
+      imagePullSecrets:
+        - name: dockerhub-secret
       containers:
         - name: url-fetcher
-          image: ACR_LOGIN_SERVER/web-crawler-url-fetcher:latest
+          image: DOCKER_REGISTRY/web-crawler-url-fetcher:latest
           ports:
             - containerPort: 8082
           envFrom:
@@ -187,9 +193,11 @@ spec:
       labels:
         app: content-parser
     spec:
+      imagePullSecrets:
+        - name: dockerhub-secret
       containers:
         - name: content-parser
-          image: ACR_LOGIN_SERVER/web-crawler-content-parser:latest
+          image: DOCKER_REGISTRY/web-crawler-content-parser:latest
           ports:
             - containerPort: 8083
           envFrom:
@@ -243,9 +251,11 @@ spec:
       labels:
         app: frontend
     spec:
+      imagePullSecrets:
+        - name: dockerhub-secret
       containers:
         - name: frontend
-          image: ACR_LOGIN_SERVER/web-crawler-frontend:latest
+          image: DOCKER_REGISTRY/web-crawler-frontend:latest
           ports:
             - containerPort: 80
           resources:
@@ -274,3 +284,5 @@ spec:
     - port: 80
       targetPort: 80
   type: ClusterIP
+
+

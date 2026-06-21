@@ -8,7 +8,8 @@ on:
 env:
   AZURE_RESOURCE_GROUP: web-crawler-rg
   AKS_CLUSTER_NAME: web-crawler-aks-dev
-  ACR_NAME: webcrawleracrdev
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-and-push:
@@ -17,54 +18,47 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Log in to Azure
-        uses: azure/login@v2
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Log in to ACR
-        run: az acr login --name ${{ env.ACR_NAME }}
-
-      - name: Set ACR login server
-        id: acr
-        run: |
-          echo "login_server=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)" >> $GITHUB_OUTPUT
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Build and push API Gateway
         run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-api-gateway:${{ github.sha }} \
-            -t ${{ steps.acr.outputs.login_server }}/web-crawler-api-gateway:latest \
+          docker build -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-api-gateway:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-api-gateway:latest \
             ./api-gateway
-          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-api-gateway --all-tags
+          docker push ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-api-gateway --all-tags
 
       - name: Build and push Crawler Orchestrator
         run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-orchestrator:${{ github.sha }} \
-            -t ${{ steps.acr.outputs.login_server }}/web-crawler-orchestrator:latest \
+          docker build -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-orchestrator:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-orchestrator:latest \
             ./crawler-orchestrator
-          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-orchestrator --all-tags
+          docker push ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-orchestrator --all-tags
 
       - name: Build and push URL Fetcher
         run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-url-fetcher:${{ github.sha }} \
-            -t ${{ steps.acr.outputs.login_server }}/web-crawler-url-fetcher:latest \
+          docker build -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-url-fetcher:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-url-fetcher:latest \
             ./url-fetcher
-          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-url-fetcher --all-tags
+          docker push ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-url-fetcher --all-tags
 
       - name: Build and push Content Parser
         run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-content-parser:${{ github.sha }} \
-            -t ${{ steps.acr.outputs.login_server }}/web-crawler-content-parser:latest \
+          docker build -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-content-parser:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-content-parser:latest \
             ./content-parser
-          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-content-parser --all-tags
+          docker push ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-content-parser --all-tags
 
       - name: Build and push Frontend
         run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-frontend:${{ github.sha }} \
-            -t ${{ steps.acr.outputs.login_server }}/web-crawler-frontend:latest \
+          docker build -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-frontend:${{ env.IMAGE_TAG }} \
+            -t ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-frontend:latest \
             --build-arg REACT_APP_API_URL=/api \
             ./frontend
-          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-frontend --all-tags
+          docker push ${{ env.DOCKER_HUB_USERNAME }}/web-crawler-frontend --all-tags
 
   deploy:
     needs: build-and-push
@@ -83,18 +77,22 @@ jobs:
           az aks get-credentials --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.AKS_CLUSTER_NAME }} --overwrite-existing
 
-      - name: Set ACR login server
-        id: acr
-        run: |
-          echo "login_server=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)" >> $GITHUB_OUTPUT
-
       - name: Update image references in manifests
         run: |
-          sed -i "s|ACR_LOGIN_SERVER|${{ steps.acr.outputs.login_server }}|g" k8s/azure/services.yaml
-          sed -i "s|:latest|:${{ github.sha }}|g" k8s/azure/services.yaml
+          sed -i "s|DOCKER_REGISTRY|${{ env.DOCKER_HUB_USERNAME }}|g" k8s/azure/services.yaml
+          sed -i "s|:latest|:${{ env.IMAGE_TAG }}|g" k8s/azure/services.yaml
 
       - name: Create namespace if not exists
         run: kubectl create namespace web-crawler --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create Docker Hub pull secret
+        run: |
+          kubectl create secret docker-registry dockerhub-secret \
+            -n web-crawler \
+            --docker-server=https://index.docker.io/v1/ \
+            --docker-username=${{ secrets.DOCKER_HUB_USERNAME }} \
+            --docker-password=${{ secrets.DOCKER_HUB_TOKEN }} \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Create storage secret
         run: |

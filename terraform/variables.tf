@@ -40,12 +40,6 @@ variable "aks_max_node_count" {
   default     = 3
 }
 
-variable "acr_sku" {
-  description = "SKU for Azure Container Registry"
-  type        = string
-  default     = "Basic"
-}
-
 variable "storage_account_replication" {
   description = "Replication type for storage account"
   type        = string

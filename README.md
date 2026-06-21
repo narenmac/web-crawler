@@ -13,7 +13,7 @@ Scalable web crawling platform built with React, Spring Boot microservices, Azur
 ## Azure Services
 
 - **AKS** — Kubernetes cluster (provisioned via Terraform)
-- **ACR** — Azure Container Registry for Docker images
+- **Docker Hub** — Container registry for Docker images
 - **Azure Blob Storage** — seed files, raw HTML, parsed content
 - **Azure Queue Storage** — work distribution (url-queue, parse-queue, result-queue, job-control-queue)
 - **Azure Table Storage** — jobs, URL metadata
@@ -61,7 +61,7 @@ terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
-This creates: Resource Group, AKS cluster, ACR, Storage Account (with all queues, tables, blob containers).
+This creates: Resource Group, AKS cluster, and Storage Account (with all queues, tables, blob containers).
 
 ### Step 2: Deploy to AKS
 
@@ -69,22 +69,22 @@ This creates: Resource Group, AKS cluster, ACR, Storage Account (with all queues
 # Get AKS credentials
 az aks get-credentials --resource-group web-crawler-rg --name web-crawler-aks-dev
 
-# Get ACR login server
-ACR_SERVER=$(terraform output -raw acr_login_server)
-
-# Build and push images to ACR
-az acr login --name webcrawleracrdev
+# Build and push images to Docker Hub
+docker login
 for svc in api-gateway crawler-orchestrator url-fetcher content-parser frontend; do
-  docker build -t $ACR_SERVER/web-crawler-$svc:latest ./$svc
-  docker push $ACR_SERVER/web-crawler-$svc:latest
+  docker build -t <your-dockerhub-username>/web-crawler-$svc:latest ./$svc
+  docker push <your-dockerhub-username>/web-crawler-$svc:latest
 done
 
-# Update manifests with ACR server and deploy
-sed -i "s|ACR_LOGIN_SERVER|$ACR_SERVER|g" k8s/azure/services.yaml
+# Deploy to AKS
+sed -i "s|DOCKER_REGISTRY|<your-dockerhub-username>|g" k8s/azure/services.yaml
 kubectl create namespace web-crawler --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret docker-registry dockerhub-secret -n web-crawler \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username=<your-dockerhub-username> \
+  --docker-password=<your-dockerhub-token>
 kubectl create secret generic azure-storage-secret -n web-crawler \
-  --from-literal=connection-string="$(terraform output -raw storage_connection_string)" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-literal=connection-string="$(terraform output -raw storage_connection_string)"
 kubectl apply -f k8s/azure/
 ```
 
@@ -106,6 +106,8 @@ Push to `main` triggers automatic build and deploy. Configure these GitHub Secre
 |---|---|
 | `AZURE_CREDENTIALS` | Azure SP credentials JSON (`az ad sp create-for-rbac --sdk-auth`) |
 | `AZURE_STORAGE_CONNECTION_STRING` | Storage account connection string |
+| `DOCKER_HUB_USERNAME` | Your Docker Hub username |
+| `DOCKER_HUB_TOKEN` | Docker Hub access token |
 
 The workflow (`.github/workflows/deploy.yml`) will:
 1. Build all 5 service images

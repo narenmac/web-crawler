@@ -14,16 +14,6 @@ output "aks_kube_config" {
   sensitive   = true
 }
 
-output "acr_login_server" {
-  description = "The login server URL for the container registry"
-  value       = azurerm_container_registry.main.login_server
-}
-
-output "acr_name" {
-  description = "The name of the container registry"
-  value       = azurerm_container_registry.main.name
-}
-
 output "storage_account_name" {
   description = "The name of the storage account"
   value       = azurerm_storage_account.main.name
