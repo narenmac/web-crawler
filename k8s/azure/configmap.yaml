@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-crawler-config
+  namespace: web-crawler
+data:
+  AZURE_STORAGE_CONNECTION_STRING: "" # Overridden by secret in deployment env
+  AZURE_STORAGE_QUEUE_URL_QUEUE: "url-queue"
+  AZURE_STORAGE_QUEUE_PARSE_QUEUE: "parse-queue"
+  AZURE_STORAGE_QUEUE_RESULT_QUEUE: "result-queue"
+  AZURE_STORAGE_QUEUE_JOB_CONTROL_QUEUE: "job-control-queue"
+  AZURE_STORAGE_BLOB_CONTAINER_WEB_PAGES: "web-pages"
+  AZURE_STORAGE_BLOB_CONTAINER_PARSED_CONTENT: "parsed-content"
+  AZURE_STORAGE_BLOB_CONTAINER_SEED_FILES: "seed-files"
+  AZURE_STORAGE_TABLE_JOBS: "jobs"
+  AZURE_STORAGE_TABLE_URL_METADATA: "urlmetadata"
+  MAX_URLS: "10000"
+  MAX_DEPTH: "5"
+  FETCH_POLITENESS_DELAY: "PT1S"
+  SPRING_PROFILES_ACTIVE: "prod"

@@ -12,55 +12,105 @@ Scalable web crawling platform built with React, Spring Boot microservices, Azur
 
 ## Azure Services
 
-- AKS (manually provisioned)
-- Azure Blob Storage for seed files and raw HTML
-- Azure Queue Storage for crawl work distribution
-- Azure Table Storage for jobs, schedules, URL metadata, and content hashes
+- **AKS** — Kubernetes cluster (provisioned via Terraform)
+- **ACR** — Azure Container Registry for Docker images
+- **Azure Blob Storage** — seed files, raw HTML, parsed content
+- **Azure Queue Storage** — work distribution (url-queue, parse-queue, result-queue, job-control-queue)
+- **Azure Table Storage** — jobs, URL metadata
 
 ## Project Structure
 
 ```text
 web-crawler/
 ├── frontend/               # React SPA
-├── api-gateway/             # Spring Boot API Gateway
-├── crawler-orchestrator/    # Spring Boot BFS Orchestrator
-├── url-fetcher/             # Spring Boot URL Fetcher Worker
-├── content-parser/          # Spring Boot Content Parser Worker
-├── k8s/                     # Kubernetes manifests (deployed via kubectl)
-│   ├── namespaces.yaml
-│   ├── frontend/
-│   ├── api-gateway/
-│   ├── orchestrator/
-│   ├── url-fetcher/
-│   └── content-parser/
-├── docker-compose.yml       # Local dev with Azurite
-└── sample-seed-urls.txt     # Test seed URLs
+├── api-gateway/            # Spring Boot API Gateway
+├── crawler-orchestrator/   # Spring Boot BFS Orchestrator
+├── url-fetcher/            # Spring Boot URL Fetcher Worker
+├── content-parser/         # Spring Boot Content Parser Worker
+├── terraform/              # Infrastructure as Code (AKS, ACR, Storage)
+├── k8s/
+│   ├── azure/              # Production Kubernetes manifests
+│   └── local/              # Local dev Kubernetes manifests
+├── .github/workflows/      # CI/CD pipelines
+├── docker-compose.yml      # Local dev with Azurite
+└── sample-seed-urls.txt    # Test seed URLs
 ```
 
-## Prerequisites (Manual Setup in Azure Portal)
+## Azure Deployment
 
-1. **Resource Group**: `rg-web-crawler-dev`
-2. **AKS Cluster**: `aks-web-crawler-dev` (2+ nodes, Standard_DS2_v2)
-3. **Storage Account** with:
-   - Queues: `url-queue`, `parse-queue`, `result-queue`, `job-control-queue`
-   - Blob Containers: `raw-pages`, `seed-files`
-   - Tables: `jobs`, `schedules`, `urlmetadata`, `contenthashes`
-4. **NGINX Ingress Controller** on AKS:
-   ```bash
-   helm install nginx-ingress ingress-nginx/ingress-nginx \
-     --namespace ingress-nginx --create-namespace
-   ```
+### Prerequisites
 
-## GitHub Secrets Required
+1. [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+2. [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.5
+3. An Azure subscription with permissions to create resources
+
+### Step 1: Provision Infrastructure with Terraform
+
+```bash
+cd terraform
+
+# Create backend storage for Terraform state (one-time)
+az group create --name terraform-state-rg --location eastus
+az storage account create --name tfstatewebcrawler --resource-group terraform-state-rg \
+  --sku Standard_LRS --kind StorageV2
+az storage container create --name tfstate --account-name tfstatewebcrawler
+
+# Initialize and apply
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+This creates: Resource Group, AKS cluster, ACR, Storage Account (with all queues, tables, blob containers).
+
+### Step 2: Deploy to AKS
+
+```bash
+# Get AKS credentials
+az aks get-credentials --resource-group web-crawler-rg --name web-crawler-aks-dev
+
+# Get ACR login server
+ACR_SERVER=$(terraform output -raw acr_login_server)
+
+# Build and push images to ACR
+az acr login --name webcrawleracrdev
+for svc in api-gateway crawler-orchestrator url-fetcher content-parser frontend; do
+  docker build -t $ACR_SERVER/web-crawler-$svc:latest ./$svc
+  docker push $ACR_SERVER/web-crawler-$svc:latest
+done
+
+# Update manifests with ACR server and deploy
+sed -i "s|ACR_LOGIN_SERVER|$ACR_SERVER|g" k8s/azure/services.yaml
+kubectl create namespace web-crawler --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic azure-storage-secret -n web-crawler \
+  --from-literal=connection-string="$(terraform output -raw storage_connection_string)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f k8s/azure/
+```
+
+### Step 3: Install NGINX Ingress (optional)
+
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm install nginx-ingress ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace
+```
+
+Then update `k8s/azure/ingress.yaml` with your domain.
+
+## CI/CD (GitHub Actions)
+
+Push to `main` triggers automatic build and deploy. Configure these GitHub Secrets:
 
 | Secret | Description |
 |---|---|
-| `DOCKER_HUB_USERNAME` | Docker Hub username |
-| `DOCKER_HUB_TOKEN` | Docker Hub access token |
-| `AZURE_CREDENTIALS` | Azure SP credentials JSON |
-| `AKS_CLUSTER_NAME` | AKS cluster name (e.g., `aks-web-crawler-dev`) |
-| `AKS_RESOURCE_GROUP` | Resource group (e.g., `rg-web-crawler-dev`) |
+| `AZURE_CREDENTIALS` | Azure SP credentials JSON (`az ad sp create-for-rbac --sdk-auth`) |
 | `AZURE_STORAGE_CONNECTION_STRING` | Storage account connection string |
+
+The workflow (`.github/workflows/deploy.yml`) will:
+1. Build all 5 service images
+2. Push to ACR (tagged with commit SHA)
+3. Deploy to AKS with rolling updates
 
 ## Local Development
 
@@ -139,31 +189,13 @@ kubectl get hpa -n web-crawler -w
 
 ## Manual Deployment
 
-```bash
-# Connect to AKS
-az aks get-credentials --resource-group rg-web-crawler-dev --name aks-web-crawler-dev
-
-# Create namespace
-kubectl apply -f k8s/namespaces.yaml
-
-# Create storage secret
-kubectl create secret generic azure-storage \
-  --from-literal=connection-string="<YOUR_CONNECTION_STRING>" \
-  --namespace=web-crawler \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Deploy all services
-kubectl apply -f k8s/frontend/
-kubectl apply -f k8s/api-gateway/
-kubectl apply -f k8s/orchestrator/
-kubectl apply -f k8s/url-fetcher/
-kubectl apply -f k8s/content-parser/
-```
+See **Azure Deployment** section above for the recommended Terraform-based approach.
 
 ## CI/CD
 
-- **CI** (`ci.yml`) — lint, test, build on pull requests
-- **CD** (`cd-dev.yml`) — build Docker images, push to Docker Hub, deploy to AKS via kubectl
+Automated via GitHub Actions (`.github/workflows/deploy.yml`):
+- Push to `main` → builds all images → pushes to ACR → deploys to AKS
+- Manual trigger also supported via `workflow_dispatch`
 
 ## API Endpoints
 

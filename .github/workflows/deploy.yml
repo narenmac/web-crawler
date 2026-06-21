@@ -1,0 +1,125 @@
+name: Build and Deploy to AKS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_RESOURCE_GROUP: web-crawler-rg
+  AKS_CLUSTER_NAME: web-crawler-aks-dev
+  ACR_NAME: webcrawleracrdev
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Set ACR login server
+        id: acr
+        run: |
+          echo "login_server=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)" >> $GITHUB_OUTPUT
+
+      - name: Build and push API Gateway
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-api-gateway:${{ github.sha }} \
+            -t ${{ steps.acr.outputs.login_server }}/web-crawler-api-gateway:latest \
+            ./api-gateway
+          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-api-gateway --all-tags
+
+      - name: Build and push Crawler Orchestrator
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-orchestrator:${{ github.sha }} \
+            -t ${{ steps.acr.outputs.login_server }}/web-crawler-orchestrator:latest \
+            ./crawler-orchestrator
+          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-orchestrator --all-tags
+
+      - name: Build and push URL Fetcher
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-url-fetcher:${{ github.sha }} \
+            -t ${{ steps.acr.outputs.login_server }}/web-crawler-url-fetcher:latest \
+            ./url-fetcher
+          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-url-fetcher --all-tags
+
+      - name: Build and push Content Parser
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-content-parser:${{ github.sha }} \
+            -t ${{ steps.acr.outputs.login_server }}/web-crawler-content-parser:latest \
+            ./content-parser
+          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-content-parser --all-tags
+
+      - name: Build and push Frontend
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/web-crawler-frontend:${{ github.sha }} \
+            -t ${{ steps.acr.outputs.login_server }}/web-crawler-frontend:latest \
+            --build-arg REACT_APP_API_URL=/api \
+            ./frontend
+          docker push ${{ steps.acr.outputs.login_server }}/web-crawler-frontend --all-tags
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} --overwrite-existing
+
+      - name: Set ACR login server
+        id: acr
+        run: |
+          echo "login_server=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)" >> $GITHUB_OUTPUT
+
+      - name: Update image references in manifests
+        run: |
+          sed -i "s|ACR_LOGIN_SERVER|${{ steps.acr.outputs.login_server }}|g" k8s/azure/services.yaml
+          sed -i "s|:latest|:${{ github.sha }}|g" k8s/azure/services.yaml
+
+      - name: Create namespace if not exists
+        run: kubectl create namespace web-crawler --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create storage secret
+        run: |
+          kubectl create secret generic azure-storage-secret \
+            -n web-crawler \
+            --from-literal=connection-string="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to AKS
+        run: |
+          kubectl apply -f k8s/azure/configmap.yaml
+          kubectl apply -f k8s/azure/services.yaml
+          kubectl apply -f k8s/azure/hpa.yaml
+          kubectl apply -f k8s/azure/ingress.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/api-gateway -n web-crawler --timeout=300s
+          kubectl rollout status deployment/crawler-orchestrator -n web-crawler --timeout=300s
+          kubectl rollout status deployment/url-fetcher -n web-crawler --timeout=300s
+          kubectl rollout status deployment/content-parser -n web-crawler --timeout=300s
+          kubectl rollout status deployment/frontend -n web-crawler --timeout=300s
+
+      - name: Show deployment status
+        run: |
+          kubectl get pods -n web-crawler
+          kubectl get svc -n web-crawler
+          kubectl get ingress -n web-crawler
