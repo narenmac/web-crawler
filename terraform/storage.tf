@@ -1,5 +1,5 @@
 resource "azurerm_storage_account" "main" {
-  name                     = "webcrawlerstor${var.environment}"
+  name                     = "sawebcrawler"
   resource_group_name      = azurerm_resource_group.main.name
   location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
