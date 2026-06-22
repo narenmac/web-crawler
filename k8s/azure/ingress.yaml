@@ -4,14 +4,29 @@ metadata:
   name: web-crawler-ingress
   namespace: web-crawler
   annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
 spec:
+  ingressClassName: nginx
   rules:
-    - host: webcrawler.example.com
+    - host: "20.42.147.72.nip.io"
       http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+    - http:
         paths:
           - path: /api
             pathType: Prefix
