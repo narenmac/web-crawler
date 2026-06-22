@@ -45,7 +45,7 @@ public class ResultService {
     }
 
     public String getContent(String jobId, String urlHash) {
-        String blobPath = "raw-html/%s/%s.html".formatted(jobId, urlHash);
+        String blobPath = "%s/%s.html".formatted(jobId, urlHash);
         BlobContainerClient containerClient = rawHtmlContainerClient();
         try {
             if (!containerClient.getBlobClient(blobPath).exists()) {
