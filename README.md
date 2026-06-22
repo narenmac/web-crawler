@@ -4,19 +4,55 @@ Scalable web crawling platform built with React, Spring Boot microservices, Azur
 
 ## Architecture
 
-- **Frontend** — React 18 + TypeScript SPA
-- **API Gateway** — REST API for jobs, schedules, and results
-- **Crawler Orchestrator** — BFS coordination, job lifecycle, and schedule execution
-- **URL Fetcher** — fetches pages, deduplicates content, stores raw HTML
-- **Content Parser** — extracts links from stored HTML, feeds results back to orchestrator
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────────┐
+│   Frontend  │────▶│  API Gateway │────▶│ Crawler Orchestrator │
+│  (React)    │     │ (Spring Boot)│     │   (Spring Boot)      │
+└─────────────┘     └──────────────┘     └──────────┬───────────┘
+                                                     │
+                          ┌──────────────────────────┼──────────────────┐
+                          │          Azure Queues     │                  │
+                          ▼                          ▼                  ▼
+                   ┌─────────────┐          ┌─────────────┐    ┌──────────────┐
+                   │ url-queue   │          │ parse-queue  │    │ result-queue │
+                   └──────┬──────┘          └──────┬──────┘    └──────┬───────┘
+                          ▼                        ▼                   │
+                   ┌─────────────┐          ┌──────────────┐           │
+                   │ URL Fetcher │          │Content Parser│           │
+                   │ (1-8 pods)  │          │  (1-5 pods)  │           │
+                   └─────────────┘          └──────────────┘           │
+                          │                        │                   │
+                          ▼                        ▼                   ▼
+                   ┌──────────────────────────────────────────────────────┐
+                   │              Azure Storage Account                    │
+                   │  Blobs: raw-html, parsed-content, seed-files         │
+                   │  Tables: jobs, urlmetadata                           │
+                   └──────────────────────────────────────────────────────┘
+```
 
-## Azure Services
+### Services
 
-- **AKS** — Kubernetes cluster (provisioned via Terraform)
-- **Docker Hub** — Container registry for Docker images
-- **Azure Blob Storage** — seed files, raw HTML, parsed content
-- **Azure Queue Storage** — work distribution (url-queue, parse-queue, result-queue, job-control-queue)
-- **Azure Table Storage** — jobs, URL metadata
+| Service | Description | Port |
+|---------|-------------|------|
+| **Frontend** | React 18 + TypeScript SPA | 80 (nginx) |
+| **API Gateway** | REST API for jobs, schedules, results | 8080 |
+| **Crawler Orchestrator** | BFS coordination, job lifecycle, scheduling | 8081 |
+| **URL Fetcher** | Fetches pages, deduplicates content, stores raw HTML | 8082 |
+| **Content Parser** | Extracts links from HTML, feeds back to orchestrator | 8083 |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Axios |
+| Backend | Spring Boot 3.2, Java 17 |
+| Messaging | Azure Queue Storage |
+| Storage | Azure Blob Storage, Azure Table Storage |
+| Container Registry | Docker Hub |
+| Orchestration | Kubernetes (AKS) |
+| Infrastructure | Terraform |
+| CI/CD | GitHub Actions |
+| Local Dev | Docker Compose + Azurite |
 
 ## Project Structure
 
@@ -27,11 +63,11 @@ web-crawler/
 ├── crawler-orchestrator/   # Spring Boot BFS Orchestrator
 ├── url-fetcher/            # Spring Boot URL Fetcher Worker
 ├── content-parser/         # Spring Boot Content Parser Worker
-├── terraform/              # Infrastructure as Code (AKS, ACR, Storage)
+├── terraform/              # Infrastructure as Code (AKS, Storage)
 ├── k8s/
 │   ├── azure/              # Production Kubernetes manifests
 │   └── local/              # Local dev Kubernetes manifests
-├── .github/workflows/      # CI/CD pipelines
+├── .github/workflows/      # CI/CD pipeline
 ├── docker-compose.yml      # Local dev with Azurite
 └── sample-seed-urls.txt    # Test seed URLs
 ```
@@ -42,61 +78,80 @@ web-crawler/
 
 1. [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed
 2. [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.5
-3. An Azure subscription with permissions to create resources
+3. [Docker](https://docs.docker.com/get-docker/) installed
+4. An Azure subscription
+5. A Docker Hub account
 
 ### Step 1: Provision Infrastructure with Terraform
 
 ```bash
 cd terraform
 
-# Create backend storage for Terraform state (one-time)
-az group create --name terraform-state-rg --location eastus
-az storage account create --name tfstatewebcrawler --resource-group terraform-state-rg \
-  --sku Standard_LRS --kind StorageV2
-az storage container create --name tfstate --account-name tfstatewebcrawler
+# First time: create a blob container 'tfstate' in your storage account for state
+# Azure Portal → Storage Account → Containers → + Container → name: tfstate
 
 # Initialize and apply
+az login
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
-This creates: Resource Group, AKS cluster, and Storage Account (with all queues, tables, blob containers).
+This creates: Resource Group, AKS cluster (1 node, Standard_B4als_v2), and Storage Account (queues, tables, blob containers).
 
-### Step 2: Deploy to AKS
+### Step 2: Build and Push Images
 
 ```bash
-# Get AKS credentials
-az aks get-credentials --resource-group web-crawler-rg --name web-crawler-aks-dev
+docker login -u naren433
 
-# Build and push images to Docker Hub
-docker login
-for svc in api-gateway crawler-orchestrator url-fetcher content-parser frontend; do
-  docker build -t <your-dockerhub-username>/web-crawler-$svc:latest ./$svc
-  docker push <your-dockerhub-username>/web-crawler-$svc:latest
-done
+docker build -t naren433/web-crawler-api-gateway:latest ./api-gateway
+docker build -t naren433/web-crawler-orchestrator:latest ./crawler-orchestrator
+docker build -t naren433/web-crawler-url-fetcher:latest ./url-fetcher
+docker build -t naren433/web-crawler-content-parser:latest ./content-parser
+docker build -t naren433/web-crawler-frontend:latest --build-arg REACT_APP_AUTH_DISABLED=true --build-arg REACT_APP_API_BASE_URL=/api ./frontend
 
-# Deploy to AKS
-sed -i "s|DOCKER_REGISTRY|<your-dockerhub-username>|g" k8s/azure/services.yaml
-kubectl create namespace web-crawler --dry-run=client -o yaml | kubectl apply -f -
-kubectl create secret docker-registry dockerhub-secret -n web-crawler \
-  --docker-server=https://index.docker.io/v1/ \
-  --docker-username=<your-dockerhub-username> \
-  --docker-password=<your-dockerhub-token>
-kubectl create secret generic azure-storage-secret -n web-crawler \
-  --from-literal=connection-string="$(terraform output -raw storage_connection_string)"
-kubectl apply -f k8s/azure/
+docker push naren433/web-crawler-api-gateway:latest
+docker push naren433/web-crawler-orchestrator:latest
+docker push naren433/web-crawler-url-fetcher:latest
+docker push naren433/web-crawler-content-parser:latest
+docker push naren433/web-crawler-frontend:latest
 ```
 
-### Step 3: Install NGINX Ingress (optional)
+### Step 3: Deploy to AKS
 
 ```bash
+# Connect to AKS
+az aks get-credentials --resource-group web-crawler-rg --name web-crawler-aks-dev
+
+# Create namespace and secrets
+kubectl create namespace web-crawler
+kubectl create secret docker-registry dockerhub-secret -n web-crawler \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username=naren433 \
+  --docker-password=<YOUR_DOCKER_HUB_TOKEN>
+kubectl create secret generic azure-storage-secret -n web-crawler \
+  --from-literal=connection-string="<YOUR_STORAGE_CONNECTION_STRING>"
+
+# Deploy all resources
+kubectl apply -f k8s/azure/
+
+# Install NGINX Ingress Controller
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm install nginx-ingress ingress-nginx/ingress-nginx \
   --namespace ingress-nginx --create-namespace
+
+# Get public IP (wait for EXTERNAL-IP to appear)
+kubectl get svc -n ingress-nginx
 ```
 
-Then update `k8s/azure/ingress.yaml` with your domain.
+Access the app at `http://<EXTERNAL-IP>`.
+
+### Step 4: Verify
+
+```bash
+kubectl get pods -n web-crawler
+kubectl get ingress -n web-crawler
+```
 
 ## CI/CD (GitHub Actions)
 
@@ -106,12 +161,12 @@ Push to `main` triggers automatic build and deploy. Configure these GitHub Secre
 |---|---|
 | `AZURE_CREDENTIALS` | Azure SP credentials JSON (`az ad sp create-for-rbac --sdk-auth`) |
 | `AZURE_STORAGE_CONNECTION_STRING` | Storage account connection string |
-| `DOCKER_HUB_USERNAME` | Your Docker Hub username |
+| `DOCKER_HUB_USERNAME` | Docker Hub username |
 | `DOCKER_HUB_TOKEN` | Docker Hub access token |
 
 The workflow (`.github/workflows/deploy.yml`) will:
 1. Build all 5 service images
-2. Push to ACR (tagged with commit SHA)
+2. Push to Docker Hub (tagged with commit SHA)
 3. Deploy to AKS with rolling updates
 
 ## Local Development
@@ -126,78 +181,44 @@ docker compose up --build
 docker compose down -v && docker compose up --build
 ```
 
-| Service           | URL                          |
-|-------------------|------------------------------|
-| Frontend          | http://localhost:3000         |
-| API Gateway       | http://localhost:8080         |
-| Debug Queues      | http://localhost:8080/api/debug/queues |
-| Orchestrator      | http://localhost:8081         |
-| URL Fetcher       | http://localhost:8082         |
-| Content Parser    | http://localhost:8083         |
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| API Gateway | http://localhost:8080 |
+| Debug Queues | http://localhost:8080/api/debug/queues |
 
 Auth is disabled locally — no Microsoft login required.
 
 ### Option B: Local Kubernetes (Docker Desktop)
 
-This option runs the app in a real Kubernetes cluster on your machine, closer to production.
-
 #### Prerequisites
-1. **Docker Desktop** with Kubernetes enabled:
-   - Settings → Kubernetes → ✅ Enable Kubernetes → Apply & Restart
-   - Wait for the green Kubernetes icon
+- **Docker Desktop** with Kubernetes enabled (Settings → Kubernetes → ✅ Enable)
 
 #### Deploy
 
 ```powershell
-# Build images, load into containerd, and deploy to k8s
 .\k8s\local\deploy-local.ps1 -All
-
-# Start port-forwarding (keep this terminal open)
 .\k8s\local\deploy-local.ps1 -PortForward
 ```
 
-| Service       | URL                                    |
-|---------------|----------------------------------------|
-| Frontend      | http://localhost:3000                   |
-| API Gateway   | http://localhost:8080/api/jobs          |
-| Debug Queues  | http://localhost:8080/api/debug/queues  |
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| API Gateway | http://localhost:8080/api/jobs |
 
 #### Useful commands
 
 ```powershell
-# Check pod status
 kubectl get pods -n web-crawler
-
-# View logs
 kubectl logs -n web-crawler -l app=url-fetcher --tail=50 -f
 kubectl logs -n web-crawler -l app=crawler-orchestrator --tail=50 -f
-
-# Scale workers (test auto-scaling behavior)
-kubectl scale deployment url-fetcher -n web-crawler --replicas=3
-kubectl scale deployment content-parser -n web-crawler --replicas=2
-
-# Watch HPA
-kubectl get hpa -n web-crawler -w
-
-# Teardown
 .\k8s\local\deploy-local.ps1 -Teardown
 ```
 
 #### Notes
-- Docker Desktop Kubernetes uses **containerd** — images are loaded via `docker save | docker exec -i desktop-control-plane ctr -n k8s.io images import -` (the deploy script handles this automatically)
-- **NodePort doesn't bind to localhost** on Docker Desktop — port-forward is required
-- Init containers wait for Azurite before services start
-- Images must be reloaded after Kubernetes restarts (`.\k8s\local\deploy-local.ps1 -Build`)
-
-## Manual Deployment
-
-See **Azure Deployment** section above for the recommended Terraform-based approach.
-
-## CI/CD
-
-Automated via GitHub Actions (`.github/workflows/deploy.yml`):
-- Push to `main` → builds all images → pushes to ACR → deploys to AKS
-- Manual trigger also supported via `workflow_dispatch`
+- Docker Desktop k8s uses **containerd** — the deploy script handles image loading automatically
+- **NodePort doesn't bind to localhost** — port-forward is required
+- Images must be reloaded after k8s restarts (`.\k8s\local\deploy-local.ps1 -Build`)
 
 ## API Endpoints
 
@@ -210,7 +231,7 @@ Automated via GitHub Actions (`.github/workflows/deploy.yml`):
 
 ### Results
 - `GET /api/results/{jobId}` — list crawled URLs
-- `GET /api/results/{jobId}/{urlHash}/content` — view crawled page
+- `GET /api/results/{jobId}/{urlHash}/content` — view crawled page content
 
 ### Schedules
 - `POST /api/schedules` — create recurring crawl
