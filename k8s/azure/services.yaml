@@ -17,7 +17,7 @@ spec:
         - name: dockerhub-secret
       containers:
         - name: api-gateway
-          image: DOCKER_REGISTRY/web-crawler-api-gateway:latest
+          image: naren433/web-crawler-api-gateway:latest
           ports:
             - containerPort: 8080
           envFrom:
@@ -81,7 +81,7 @@ spec:
         - name: dockerhub-secret
       containers:
         - name: crawler-orchestrator
-          image: DOCKER_REGISTRY/web-crawler-orchestrator:latest
+          image: naren433/web-crawler-orchestrator:latest
           ports:
             - containerPort: 8081
           envFrom:
@@ -139,7 +139,7 @@ spec:
         - name: dockerhub-secret
       containers:
         - name: url-fetcher
-          image: DOCKER_REGISTRY/web-crawler-url-fetcher:latest
+          image: naren433/web-crawler-url-fetcher:latest
           ports:
             - containerPort: 8082
           envFrom:
@@ -197,7 +197,7 @@ spec:
         - name: dockerhub-secret
       containers:
         - name: content-parser
-          image: DOCKER_REGISTRY/web-crawler-content-parser:latest
+          image: naren433/web-crawler-content-parser:latest
           ports:
             - containerPort: 8083
           envFrom:
@@ -255,7 +255,7 @@ spec:
         - name: dockerhub-secret
       containers:
         - name: frontend
-          image: DOCKER_REGISTRY/web-crawler-frontend:latest
+          image: naren433/web-crawler-frontend:latest
           ports:
             - containerPort: 80
           resources:
